@@ -131,6 +131,43 @@ class GroupRepository {
       rethrow;
     }
   }
+  
+  // チップ取引の作成
+  Future<void> addChipTransaction({
+    required String groupId,
+    required String userId,
+    required double amount,
+    String? note,
+  }) async {
+    try {
+      await _dataSource.addChipTransaction(
+        groupId: groupId,
+        userId: userId,
+        amount: amount,
+        note: note,
+      );
+    } catch (e) {
+      rethrow;
+    }
+  }
+  
+  // グループの取引履歴取得
+  Future<List<Map<String, dynamic>>> getGroupTransactions(String groupId) async {
+    try {
+      return await _dataSource.getGroupTransactions(groupId);
+    } catch (e) {
+      return [];
+    }
+  }
+  
+  // ユーザーのチップ残高取得
+  Future<double> getUserBalance(String groupId, String userId) async {
+    try {
+      return await _dataSource.getUserBalance(groupId, userId);
+    } catch (e) {
+      return 0.0;
+    }
+  }
 }
 
 class GroupMember {
