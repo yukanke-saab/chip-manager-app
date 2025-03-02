@@ -258,10 +258,25 @@ class SupabaseDataSource {
     String? chipUnit,
   }) async {
     try {
-      // 匿名セッションがなければ作成
-      final user = await getOrCreateAnonymousSession();
+      // 現在のユーザーを取得、なければ匿名セッションを作成を試みる
+      User? user = currentUser;
       if (user == null) {
-        throw Exception('セッションの作成に失敗しました');
+        try {
+          user = await getOrCreateAnonymousSession();
+          if (user == null) {
+            // ユーザーの取得が失敗しても、現在のセッションを再度確認
+            user = client.auth.currentUser;
+          }
+        } catch (e) {
+          print('匿名セッション作成中のエラー: $e');
+          // 最終確認
+          user = client.auth.currentUser;
+        }
+      }
+      
+      // ユーザーが存在しない場合は例外を発生
+      if (user == null) {
+        throw Exception('セッションが存在しないため、グループを作成できません');
       }
       
       // ランダムな招待コードを生成
@@ -292,6 +307,7 @@ class SupabaseDataSource {
       
       return groupId;
     } catch (e) {
+      print('グループ作成中のエラー: $e');
       rethrow;
     }
   }

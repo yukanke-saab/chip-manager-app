@@ -121,6 +121,19 @@ class _GroupsScreenState extends State<GroupsScreen> {
       appBar: AppBar(
         title: const Text('グループ一覧'),
         actions: [
+          // グループ作成ボタン
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: () => context.push('/groups/create'),
+            tooltip: 'グループを作成',
+          ),
+          // グループ参加ボタン
+          IconButton(
+            icon: const Icon(Icons.group_add),
+            onPressed: _showJoinGroupDialog,
+            tooltip: 'グループに参加',
+          ),
+          // ログイン/ログアウトボタン
           _isLoggedIn
               ? IconButton(
                   icon: const Icon(Icons.logout),
@@ -199,27 +212,29 @@ class _GroupsScreenState extends State<GroupsScreen> {
             ),
             const SizedBox(height: 8),
             const Text('新しいグループを作成するか、招待コードで参加してください'),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: 280,
+              height: 56,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  // グループ作成画面へ遷移
+                  context.push('/groups/create');
+                },
+                icon: const Icon(Icons.add, size: 28),
+                label: const Text('グループを作成する', style: TextStyle(fontSize: 18)),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 24),
+                ),
+              ),
+            ),
             const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () {
-                    // TODO: グループ作成画面へ遷移
-                    // context.push('/groups/create');
-                  },
-                  icon: const Icon(Icons.add),
-                  label: const Text('グループ作成'),
-                ),
-                const SizedBox(width: 16),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    _showJoinGroupDialog();
-                  },
-                  icon: const Icon(Icons.group_add),
-                  label: const Text('グループ参加'),
-                ),
-              ],
+            OutlinedButton.icon(
+              onPressed: () {
+                _showJoinGroupDialog();
+              },
+              icon: const Icon(Icons.group_add),
+              label: const Text('グループに参加する'),
             ),
           ],
         ),
