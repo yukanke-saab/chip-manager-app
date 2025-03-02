@@ -142,8 +142,9 @@ class _GroupsScreenState extends State<GroupsScreen> {
             // 必須ではないが、メリットを説明
             _showLoginPromptDialog();
           }
-          // TODO: グループ作成画面へ遷移
-          // context.push('/groups/create');
+          
+          // グループ作成画面へ遷移
+          context.push('/groups/create');
         },
         tooltip: '新しいグループを作成',
         child: const Icon(Icons.add),
