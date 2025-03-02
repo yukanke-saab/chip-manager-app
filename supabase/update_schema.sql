@@ -11,7 +11,7 @@ RETURNS TRIGGER AS $$
 BEGIN
   -- 既存のプロフィールがない場合のみ挿入
   INSERT INTO public.user_profiles (id, display_name, is_anonymous)
-  VALUES (NEW.id, COALESCE(NEW.email, 'Anonymous User'), NEW.email LIKE '%@anonymous.user')
+  VALUES (NEW.id, COALESCE(NEW.email, 'ゲストユーザー'), NEW.email LIKE 'anonymous-%@example.com')
   ON CONFLICT (id) DO NOTHING; -- IDが重複する場合は何もしない
   RETURN NEW;
 END;

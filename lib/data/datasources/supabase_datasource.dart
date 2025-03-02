@@ -59,10 +59,10 @@ class SupabaseDataSource {
     if (user != null) return user;
     
     try {
-      // デバイスIDをパスワードとして使用
+      // デバイスIDをパスワードとして使用（メールアドレス形式にフォーマット）
       final deviceId = await getDeviceId();
-      final email = '$deviceId@anonymous.user';
-      final password = deviceId;
+      final email = 'anonymous-${deviceId.substring(0, 8)}@example.com';
+      final password = 'Anonymous${deviceId}';
       
       try {
         // 既存の匿名ユーザーでログイン試行
@@ -83,7 +83,7 @@ class SupabaseDataSource {
           // 匿名フラグを立てる
           await client.from('user_profiles').upsert({
             'id': newUser.id,
-            'display_name': 'Anonymous User',
+            'display_name': 'ゲストユーザー',
             'is_anonymous': true,
           });
         }
