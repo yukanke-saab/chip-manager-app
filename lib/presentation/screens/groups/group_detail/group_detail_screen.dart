@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../../../../core/themes/app_colors.dart';
 import '../../../../data/models/group_model.dart';
 import '../../../../data/repositories/group_repository.dart';
 import '../../../../data/repositories/auth_repository.dart';
+import 'transaction_history.dart';
 
 class GroupDetailScreen extends StatefulWidget {
   final String groupId;
@@ -349,10 +351,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
   }
 
   Widget _buildTransactionsTab() {
-    // TODO: 取引履歴の実装
-    return const Center(
-      child: Text('取引履歴はまだありません'),
-    );
+    return TransactionHistoryWidget(groupId: widget.groupId);
   }
 
   Widget _buildInfoRow(String label, String value) {
@@ -392,7 +391,8 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
             }
             break;
           case 2: // 取引履歴タブ
-            // TODO: チップ取引画面へ遷移
+            // チップ取引画面へ遷移
+            context.push('/groups/${widget.groupId}/transactions/add');
             break;
         }
       },

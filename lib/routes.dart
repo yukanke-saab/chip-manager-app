@@ -7,6 +7,7 @@ import 'presentation/screens/splash_screen.dart';
 import 'presentation/screens/groups/groups_screen.dart';
 import 'presentation/screens/groups/create_group.dart';
 import 'presentation/screens/groups/group_detail.dart';
+import 'presentation/screens/transactions/index.dart';
 
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -55,6 +56,15 @@ class AppRouter {
         builder: (context, state) {
           final groupId = state.pathParameters['id']!;
           return GroupDetailScreen(groupId: groupId);
+        },
+      ),
+      
+      // 取引（トランザクション）画面
+      GoRoute(
+        path: '/groups/:id/transactions/add',
+        builder: (context, state) {
+          final groupId = state.pathParameters['id']!;
+          return AddTransactionScreen(groupId: groupId);
         },
       ),
       
