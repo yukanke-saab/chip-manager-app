@@ -26,27 +26,20 @@ class _SplashScreenState extends State<SplashScreen> {
     
     if (!mounted) return;
     
+    // 匿名セッションを試行する
     try {
-      // 匿名セッションを試行するが、失敗してもグループ画面に進む
-      try {
-        await _authRepository.getOrCreateAnonymousSession();
-      } catch (e) {
-        print('匿名セッション作成エラー: $e');
-        // エラーを無視して続行
-      }
-      
-      if (!mounted) return;
-      
-      // グループ一覧画面へ移動
-      context.go('/groups');
+      final user = await _authRepository.getOrCreateAnonymousSession();
+      print('セッション状態: ' + (user != null ? '成功' : '失敗だが続行'));
     } catch (e) {
-      print('予期せぬエラー: $e');
-      
-      if (!mounted) return;
-      
-      // エラーがあっても移動（UIで対応）
-      context.go('/groups');
+      print('匿名セッション作成エラー: $e');
+      // エラーを無視して続行
     }
+    
+    if (!mounted) return;
+    
+    // 認証の成功・失敗に関わらず、グループ一覧画面へ移動
+    context.go('/groups');
+  }
   }
 
   @override

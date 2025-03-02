@@ -29,11 +29,26 @@ class _GroupsScreenState extends State<GroupsScreen> {
     _loadGroups();
   }
   
-  void _checkLoginStatus() {
+  Future<void> _checkLoginStatus() async {
     final user = Supabase.instance.client.auth.currentUser;
-    setState(() {
-      _isLoggedIn = user != null;
-    });
+    final authRepo = AuthRepository();
+    bool isAnonymous = false;
+    
+    if (user != null) {
+      try {
+        isAnonymous = await authRepo.isAnonymousUser();
+      } catch (e) {
+        print('匿名ユーザーチェックエラー: $e');
+        isAnonymous = true;
+      }
+    }
+    
+    if (mounted) {
+      setState(() {
+        // 匿名ユーザーでない認証済みユーザーのみtrueとする
+        _isLoggedIn = user != null && !isAnonymous;
+      });
+    }
   }
   
   Future<void> _loadGroups() async {
@@ -43,26 +58,35 @@ class _GroupsScreenState extends State<GroupsScreen> {
         _errorMessage = null;
       });
       
-      // ログインしている場合のみグループを読み込む
-      if (_isLoggedIn) {
+      // ログインしているかどうかに関わらず、グループを読み込む（匿名でも利用可能）
+      try {
         final groups = await _groupRepository.getUserGroups();
-        setState(() {
-          _groups = groups;
-        });
-      } else {
-        setState(() {
-          _groups = [];
-        });
+        if (mounted) {
+          setState(() {
+            _groups = groups;
+          });
+        }
+      } catch (e) {
+        print('グループ読み込みエラー: $e');
+        if (mounted) {
+          setState(() {
+            _groups = [];
+          });
+        }
       }
       
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString();
+          _isLoading = false;
+        });
+      }
     }
   }
   
@@ -112,13 +136,14 @@ class _GroupsScreenState extends State<GroupsScreen> {
       body: _buildBody(),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          // グループを作成するにはログインが必要
+          // 会員登録なしでもグループ作成可能
+          // アカウント登録のメリットを説明するダイアログを表示
           if (!_isLoggedIn) {
+            // 必須ではないが、メリットを説明
             _showLoginPromptDialog();
-          } else {
-            // TODO: グループ作成画面へ遷移
-            // context.push('/groups/create');
           }
+          // TODO: グループ作成画面へ遷移
+          // context.push('/groups/create');
         },
         tooltip: '新しいグループを作成',
         child: const Icon(Icons.add),
@@ -154,47 +179,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
       );
     }
     
-    if (!_isLoggedIn) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.group_outlined,
-              size: 64,
-              color: AppColors.textLight,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Chip Managerへようこそ',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            const Text('ポーカーチップを簡単に管理できるアプリです'),
-            const SizedBox(height: 32),
-            const Text('アプリを利用するにはアカウントが必要です'),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton(
-                  onPressed: _navigateToLogin,
-                  child: const Text('ログイン'),
-                ),
-                const SizedBox(width: 16),
-                ElevatedButton(
-                  onPressed: _navigateToRegister,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.secondary,
-                  ),
-                  child: const Text('新規登録'),
-                ),
-              ],
-            ),
-          ],
-        ),
-      );
-    }
+    // 以前はここに未ログイン時の画面がありましたが、今回の変更で匿名ユーザーでもグループを表示するので削除します
     
     if (_groups.isEmpty) {
       return Center(
@@ -315,12 +300,12 @@ class _GroupsScreenState extends State<GroupsScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('アカウントが必要です'),
-        content: const Text('この機能を利用するにはログインが必要です。'),
+        title: const Text('アカウント登録のメリット'),
+        content: const Text('アカウントを登録すると、機種変更時やアプリ再インストール時にデータを引き継ぐことができます。登録は任意です。'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('キャンセル'),
+            child: const Text('後で登録する'),
           ),
           ElevatedButton(
             onPressed: () {

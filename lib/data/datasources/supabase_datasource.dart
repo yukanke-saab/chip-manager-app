@@ -83,7 +83,7 @@ class SupabaseDataSource {
       if (newUser != null) {
         // ユーザープロファイルを作成
         try {
-          await client.from('user_profiles').insert({
+          await client.from('user_profiles').upsert({
             'id': newUser.id,
             'display_name': 'ゲストユーザー',
             'is_anonymous': true,
@@ -97,7 +97,8 @@ class SupabaseDataSource {
       return newUser;
     } catch (e) {
       print('匿名ログインエラー: $e');
-      rethrow;
+      // エラーが発生しても処理を続行するためにnullを返す
+      return null;
     }
   }
   
