@@ -406,7 +406,7 @@ class SupabaseDataSource {
           final localGroups = await client
               .from('groups')
               .select('*')
-              .in_('id', ownedGroups);
+              .inFilter('id', ownedGroups);
           
           return [
             ...response,
