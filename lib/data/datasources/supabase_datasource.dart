@@ -46,14 +46,18 @@ class SupabaseDataSource {
     if (user == null) return true;
     
     try {
-      if (user.email == null) return true;
-      
-      // メールアドレスが一時的なものかチェック
-      if (user.email!.contains('temp-user-') && user.email!.endsWith('@chipmanager.app')) {
+      if (user.email == null) {
+        // メールアドレスが設定されていない = 匿名ユーザー
         return true;
       }
       
-      return false;
+      // プロファイルで匿名フラグをチェック
+      try {
+        final profile = await getUserProfile(user.id);
+        return profile['is_anonymous'] == true;
+      } catch (e) {
+        return true;
+      }
     } catch (e) {
       return true;
     }
@@ -63,62 +67,34 @@ class SupabaseDataSource {
   Future<User?> getOrCreateAnonymousSession() async {
     final user = currentUser;
     if (user != null) {
-      final isAnonymous = await isAnonymousUser();
-      if (isAnonymous) {
-        return user; // 既存の匿名ユーザー
+      // 既存ユーザーがいる場合はそれを返す
+      final isAnon = await isAnonymousUser();
+      if (isAnon) {
+        return user; // 既に匿名ユーザー
       }
+      return user; // 登録済みユーザー
     }
     
     try {
-      // デバイスIDを取得
-      final deviceId = await getDeviceId();
+      // Supabaseの匿名認証を使用
+      final response = await client.auth.signInAnonymously();
       
-      // 一時的なメールアドレスを生成（ランダム要素を追加して重複を避ける）
-      final random = Random().nextInt(10000).toString().padLeft(4, '0');
-      final tempEmail = 'temp-user-${deviceId.substring(0, 8)}-$random@chipmanager.app';
-      final password = 'TempPassword${deviceId.substring(0, 8)}';
-      
-      try {
-        // サインアップを試行
-        final response = await client.auth.signUp(
-          email: tempEmail,
-          password: password,
-          data: {
-            'is_anonymous': true,
-            'device_id': deviceId,
-          },
-        );
-        
-        final newUser = response.user;
-        if (newUser != null) {
-          // ユーザープロファイルを作成
-          try {
-            await client.from('user_profiles').insert({
-              'id': newUser.id,
-              'display_name': 'ゲストユーザー',
-              'is_anonymous': true,
-            });
-          } catch (e) {
-            // プロファイル作成エラーは無視（すでに存在する場合など）
-            print('Profile creation error: $e');
-          }
-        }
-        
-        return newUser;
-      } catch (e) {
-        // サインアップに失敗した場合（既に存在する可能性）、サインインを試行
+      final newUser = response.user;
+      if (newUser != null) {
+        // ユーザープロファイルを作成
         try {
-          final response = await client.auth.signInWithPassword(
-            email: tempEmail,
-            password: password,
-          );
-          return response.user;
+          await client.from('user_profiles').insert({
+            'id': newUser.id,
+            'display_name': 'ゲストユーザー',
+            'is_anonymous': true,
+          });
         } catch (e) {
-          print('既存ユーザーでのサインインにも失敗: $e');
-          // 新しいランダム要素で再試行
-          return getOrCreateAnonymousSession();
+          // プロファイル作成エラーは無視（すでに存在する場合など）
+          print('Profile creation error: $e');
         }
       }
+      
+      return newUser;
     } catch (e) {
       print('匿名ログインエラー: $e');
       rethrow;

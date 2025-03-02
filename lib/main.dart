@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
+import 'data/repositories/auth_repository.dart';
 import 'core/constants/app_constants.dart';
 import 'routes.dart';
 import 'core/themes/app_theme.dart';
