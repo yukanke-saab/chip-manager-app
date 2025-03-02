@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/themes/app_colors.dart';
-import '../../../data/models/group_model.dart';
-import '../../../data/repositories/auth_repository.dart';
-import '../../../data/repositories/group_repository.dart';
 
 class GroupsScreen extends StatefulWidget {
   const GroupsScreen({Key? key}) : super(key: key);
@@ -13,65 +11,22 @@ class GroupsScreen extends StatefulWidget {
 }
 
 class _GroupsScreenState extends State<GroupsScreen> {
-  final _authRepository = AuthRepository();
-  final _groupRepository = GroupRepository();
-  
-  bool _isLoading = true;
-  List<GroupModel> _groups = [];
+  bool _isLoading = false;
+  List<Map<String, dynamic>> _groups = [];
   String? _errorMessage;
-  bool _isAnonymous = true;
+  bool _isLoggedIn = false;
   
   @override
   void initState() {
     super.initState();
     _checkLoginStatus();
-    _loadGroups();
   }
   
-  Future<void> _checkLoginStatus() async {
-    final isAnonymous = await _authRepository.isAnonymousUser();
-    
+  void _checkLoginStatus() {
+    final user = Supabase.instance.client.auth.currentUser;
     setState(() {
-      _isAnonymous = isAnonymous;
+      _isLoggedIn = user != null;
     });
-  }
-  
-  Future<void> _loadGroups() async {
-    try {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = null;
-      });
-      
-      final groups = await _groupRepository.getUserGroups();
-      
-      setState(() {
-        _groups = groups;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-        _isLoading = false;
-      });
-    }
-  }
-  
-  Future<void> _logout() async {
-    try {
-      await _authRepository.signOut();
-      
-      setState(() {
-        _isAnonymous = true;
-      });
-      
-      // グループ一覧を再読み込み
-      _loadGroups();
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('ログアウトに失敗しました: ${e.toString()}')),
-      );
-    }
   }
   
   void _navigateToLogin() {
@@ -82,29 +37,57 @@ class _GroupsScreenState extends State<GroupsScreen> {
     context.push('/register');
   }
   
+  Future<void> _logout() async {
+    setState(() {
+      _isLoading = true;
+    });
+    
+    try {
+      await Supabase.instance.client.auth.signOut();
+      
+      setState(() {
+        _isLoggedIn = false;
+        _isLoading = false;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('ログアウトに失敗しました: ${e.toString()}')),
+      );
+      
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+  
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('グループ一覧'),
         actions: [
-          _isAnonymous
-              ? TextButton(
-                  onPressed: _navigateToLogin,
-                  child: const Text('ログイン'),
-                )
-              : IconButton(
+          _isLoggedIn
+              ? IconButton(
                   icon: const Icon(Icons.logout),
                   onPressed: _logout,
                   tooltip: 'ログアウト',
+                )
+              : TextButton(
+                  onPressed: _navigateToLogin,
+                  child: const Text('ログイン'),
                 ),
         ],
       ),
       body: _buildBody(),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          // TODO: グループ作成画面へ遷移
-          // context.push('/groups/create');
+          // グループ作成 - 会員登録を促すダイアログ表示
+          if (!_isLoggedIn) {
+            _showLoginPromptDialog();
+          } else {
+            // TODO: グループ作成画面へ遷移
+            // context.push('/groups/create');
+          }
         },
         tooltip: '新しいグループを作成',
         child: const Icon(Icons.add),
@@ -119,151 +102,121 @@ class _GroupsScreenState extends State<GroupsScreen> {
       );
     }
     
-    if (_errorMessage != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'エラーが発生しました',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(_errorMessage!),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _loadGroups,
-              child: const Text('再試行'),
-            ),
-          ],
-        ),
-      );
-    }
-    
-    if (_groups.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.group_outlined,
-              size: 64,
-              color: AppColors.textLight,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'グループがありません',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            const Text('新しいグループを作成するか、招待コードで参加してください'),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(
+            Icons.group_outlined,
+            size: 64,
+            color: AppColors.textLight,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'ようこそ、Chip Managerへ',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 8),
+          const Text('ポーカーチップを簡単に管理できるアプリです。'),
+          const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ElevatedButton.icon(
+                onPressed: () {
+                  if (!_isLoggedIn) {
+                    _showLoginPromptDialog();
+                  } else {
                     // TODO: グループ作成画面へ遷移
-                    // context.push('/groups/create');
-                  },
-                  icon: const Icon(Icons.add),
-                  label: const Text('グループ作成'),
+                  }
+                },
+                icon: const Icon(Icons.add),
+                label: const Text('グループ作成'),
+              ),
+              const SizedBox(width: 16),
+              OutlinedButton.icon(
+                onPressed: () {
+                  _showJoinGroupDialog();
+                },
+                icon: const Icon(Icons.group_add),
+                label: const Text('グループ参加'),
+              ),
+            ],
+          ),
+          if (!_isLoggedIn) ...[
+            const SizedBox(height: 32),
+            const Text('会員登録すると以下の機能が使えます：'),
+            const SizedBox(height: 8),
+            Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.check_circle, color: AppColors.success, size: 16),
+                    const SizedBox(width: 8),
+                    const Text('グループの作成と管理'),
+                  ],
                 ),
-                const SizedBox(width: 16),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    // TODO: 招待コード入力ダイアログを表示
-                    _showJoinGroupDialog();
-                  },
-                  icon: const Icon(Icons.group_add),
-                  label: const Text('グループ参加'),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.check_circle, color: AppColors.success, size: 16),
+                    const SizedBox(width: 8),
+                    const Text('端末間でのデータ同期'),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.check_circle, color: AppColors.success, size: 16),
+                    const SizedBox(width: 8),
+                    const Text('履歴の閲覧と分析'),
+                  ],
                 ),
               ],
             ),
-            if (_isAnonymous) ...[
-              const SizedBox(height: 32),
-              const Text('会員登録するとデータを永続化できます'),
-              const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed: _navigateToRegister,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.secondary,
-                ),
-                child: const Text('会員登録'),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _navigateToRegister,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.secondary,
               ),
-            ],
+              child: const Text('会員登録する（無料）'),
+            ),
           ],
-        ),
-      );
-    }
-    
-    return RefreshIndicator(
-      onRefresh: _loadGroups,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _groups.length,
-        itemBuilder: (context, index) {
-          final group = _groups[index];
-          return _buildGroupCard(group);
-        },
+        ],
       ),
     );
   }
   
-  Widget _buildGroupCard(GroupModel group) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      child: InkWell(
-        onTap: () {
-          // TODO: グループ詳細画面へ遷移
-          // context.push('/groups/${group.id}');
-        },
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      group.name,
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                  ),
-                  const Icon(Icons.chevron_right),
-                ],
-              ),
-              if (group.description.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  group.description,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  const Icon(
-                    Icons.monetization_on_outlined,
-                    size: 16,
-                    color: AppColors.textLight,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'チップ単位: ${group.chipUnit}',
-                    style: TextStyle(
-                      color: AppColors.textLight,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            ],
+  void _showLoginPromptDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('会員登録が必要です'),
+        content: const Text('グループを作成するには会員登録が必要です。会員登録は無料です。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('キャンセル'),
           ),
-        ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _navigateToRegister();
+            },
+            child: const Text('会員登録'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _navigateToLogin();
+            },
+            child: const Text('ログイン'),
+          ),
+        ],
       ),
     );
   }
@@ -298,27 +251,21 @@ class _GroupsScreenState extends State<GroupsScreen> {
             child: const Text('キャンセル'),
           ),
           ElevatedButton(
-            onPressed: () async {
+            onPressed: () {
               final code = controller.text.trim().toUpperCase();
               if (code.isEmpty) return;
               
               Navigator.pop(context);
               
-              try {
-                await _groupRepository.joinGroupByInviteCode(code);
-                
-                if (!mounted) return;
-                
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('グループに参加しました！')),
-                );
-                
-                _loadGroups(); // グループ一覧を再読み込み
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('参加に失敗しました: ${e.toString()}')),
-                );
+              if (!_isLoggedIn) {
+                _showLoginPromptDialog();
+                return;
               }
+              
+              // TODO: グループ参加処理
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('この機能は現在実装中です')),
+              );
             },
             child: const Text('参加'),
           ),

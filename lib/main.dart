@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
-import 'data/repositories/auth_repository.dart';
 import 'core/constants/app_constants.dart';
 import 'routes.dart';
 import 'core/themes/app_theme.dart';
@@ -28,10 +27,6 @@ void main() async {
     url: AppConstants.supabaseUrl,
     anonKey: AppConstants.supabaseAnonKey,
   );
-  
-  // 匿名セッションを初期化
-  final authRepository = AuthRepository();
-  await authRepository.getOrCreateAnonymousSession();
   
   runApp(const MyApp());
 }
