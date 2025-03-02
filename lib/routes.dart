@@ -6,6 +6,7 @@ import 'presentation/screens/auth/forgot_password_screen.dart';
 import 'presentation/screens/splash_screen.dart';
 import 'presentation/screens/groups/groups_screen.dart';
 import 'presentation/screens/groups/create_group.dart';
+import 'presentation/screens/groups/group_detail.dart';
 
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -49,13 +50,13 @@ class AppRouter {
       ),
       
       // グループ詳細画面
-      // GoRoute(
-      //   path: '/groups/:id',
-      //   builder: (context, state) {
-      //     final groupId = state.pathParameters['id']!;
-      //     return GroupDetailScreen(groupId: groupId);
-      //   },
-      // ),
+      GoRoute(
+        path: '/groups/:id',
+        builder: (context, state) {
+          final groupId = state.pathParameters['id']!;
+          return GroupDetailScreen(groupId: groupId);
+        },
+      ),
       
       // プロフィール画面
       // GoRoute(

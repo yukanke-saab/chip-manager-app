@@ -263,8 +263,8 @@ class _GroupsScreenState extends State<GroupsScreen> {
       margin: const EdgeInsets.only(bottom: 16),
       child: InkWell(
         onTap: () {
-          // TODO: グループ詳細画面へ遷移
-          // context.push('/groups/${group.id}');
+          // グループ詳細画面へ遷移
+          context.push('/groups/${group.id}');
         },
         borderRadius: BorderRadius.circular(12),
         child: Padding(
