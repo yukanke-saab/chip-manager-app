@@ -318,6 +318,9 @@ class SupabaseDataSource {
       ownedGroups.add(groupId);
       await prefs.setStringList('owned_groups', ownedGroups);
       
+      print('作成したグループID: $groupId');
+      print('ローカル保存済みグループIDs: $ownedGroups');
+      
       return groupId;
     } catch (e) {
       print('グループ作成中のエラー: $e');
@@ -371,12 +374,14 @@ class SupabaseDataSource {
       
       if (user != null) {
         userId = user.id;
+        print('ユーザーIDで検索: $userId');
       } else {
         try {
           // 匿名セッションを試行
           user = await getOrCreateAnonymousSession();
           if (user != null) {
             userId = user.id;
+            print('匿名ユーザーIDで検索: $userId');
           }
         } catch (e) {
           print('匿名セッション作成中のエラー: $e');
@@ -386,42 +391,81 @@ class SupabaseDataSource {
       
       // デバイスIDを取得
       final deviceId = await getDeviceId();
+      print('デバイスID: $deviceId');
       
       // ユーザーIDがあればそれで、なければデバイスIDでグループを検索
       final targetId = userId ?? deviceId;
+      print('グループ検索用ID: $targetId');
+      
+      List<Map<String, dynamic>> result = [];
       
       // グループメンバーテーブルからグループを検索
-      final response = await client
-          .from('group_members')
-          .select('group_id, role, groups(*)')
-          .eq('user_id', targetId);
+      try {
+        final response = await client
+            .from('group_members')
+            .select('group_id, role, groups(*)')
+            .eq('user_id', targetId);
+        
+        print('メンバーテーブルから取得したグループ数: ${response.length}');
+        result.addAll(response);
+      } catch (e) {
+        print('メンバーテーブルからの取得エラー: $e');
+      }
       
       // ローカルに保存されている所有グループを取得
       final prefs = await SharedPreferences.getInstance();
       final ownedGroups = prefs.getStringList('owned_groups') ?? [];
+      print('ローカル保存グループ数: ${ownedGroups.length}');
+      if (ownedGroups.isNotEmpty) {
+        print('ローカル保存グループIDs: $ownedGroups');
+      }
       
       // デバイスIDのみで作成したグループに対して追加取得
-      if (ownedGroups.isNotEmpty && userId == null) {
+      if (ownedGroups.isNotEmpty) {
         try {
-          final localGroups = await client
+          // ここではシンプルなアプローチとして、すべてのグループを取得
+          final allGroups = await client
               .from('groups')
-              .select('*')
-              .inFilter('id', ownedGroups);
+              .select('*');
           
-          return [
-            ...response,
-            ...localGroups.map((group) => {
-              'group_id': group['id'],
-              'role': 'owner',
-              'groups': group,
-            }),
-          ];
+          // ローカルに保存されたグループのみをフィルタリング
+          final filteredGroups = allGroups.where((group) => 
+              ownedGroups.contains(group['id'].toString())).toList();
+          
+          print('ローカル保存グループの取得数: ${filteredGroups.length}');
+          
+          // 結果に追加
+          result.addAll(filteredGroups.map((group) => {
+            'group_id': group['id'],
+            'role': 'owner',
+            'groups': group,
+          }));
         } catch (e) {
           print('ローカルグループ取得エラー: $e');
         }
       }
       
-      return response;
+      // グループがうまく取得できない場合に、すべてのグループを取得するフォールバック
+      if (result.isEmpty) {
+        try {
+          print('バックアップ: すべてのグループを取得');
+          final allGroups = await client
+              .from('groups')
+              .select('*');
+          
+          print('すべてのグループ数: ${allGroups.length}');
+          result.addAll(allGroups.map((group) => {
+            'group_id': group['id'],
+            'role': 'member',
+            'groups': group,
+          }));
+        } catch (e) {
+          print('すべてのグループ取得エラー: $e');
+        }
+      }
+      
+      print('最終的なグループ数: ${result.length}');
+      return result;
     } catch (e) {
       print('グループ一覧取得エラー: $e');
       return [];

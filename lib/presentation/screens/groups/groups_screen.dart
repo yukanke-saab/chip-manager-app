@@ -58,28 +58,26 @@ class _GroupsScreenState extends State<GroupsScreen> {
         _errorMessage = null;
       });
       
-      // ログインしているかどうかに関わらず、グループを読み込む（匿名でも利用可能）
       try {
+        // グループを取得
         final groups = await _groupRepository.getUserGroups();
         if (mounted) {
           setState(() {
             _groups = groups;
+            _isLoading = false;
           });
+          print('グループ数: ${groups.length}');
         }
       } catch (e) {
-        print('グループ読み込みエラー: $e');
+        print('グループ取得エラー: $e');
         if (mounted) {
           setState(() {
             _groups = [];
+            _isLoading = false;
           });
         }
       }
       
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -121,6 +119,12 @@ class _GroupsScreenState extends State<GroupsScreen> {
       appBar: AppBar(
         title: const Text('グループ一覧'),
         actions: [
+          // リロードボタン
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadGroups,
+            tooltip: '再読み込み',
+          ),
           // グループ作成ボタン
           IconButton(
             icon: const Icon(Icons.add),
