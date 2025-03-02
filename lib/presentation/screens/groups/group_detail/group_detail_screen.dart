@@ -57,6 +57,10 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
 
       // グループメンバーを取得
       final members = await _groupRepository.getGroupMembers(widget.groupId);
+      print('メンバー数: ${members.length}');
+      for (var member in members) {
+        print('メンバー: ${member.profile.displayName}, ロール: ${member.role}, ID: ${member.userId}');
+      }
       
       // 自分が所有者かチェック
       final currentUser = _authRepository.currentUser;
@@ -65,11 +69,13 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
       if (currentUser != null) {
         final ownerId = group.ownerId;
         isOwner = ownerId == currentUser.id;
+        print('現在のユーザーID: ${currentUser.id}, オーナーID: $ownerId, オーナーかどうか: $isOwner');
         
         // メンバーロールでも確認
         for (final member in members) {
           if (member.userId == currentUser.id && member.isOwner) {
             isOwner = true;
+            print('メンバーロールからオーナーと判定');
             break;
           }
         }

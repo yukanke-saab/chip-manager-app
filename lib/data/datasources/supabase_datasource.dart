@@ -490,13 +490,81 @@ class SupabaseDataSource {
   // グループメンバーの取得
   Future<List<Map<String, dynamic>>> getGroupMembers(String groupId) async {
     try {
+      // グループ情報を取得してオーナーIDを確認
+      final groupInfo = await client
+          .from('groups')
+          .select('owner_id')
+          .eq('id', groupId)
+          .single();
+          
+      print('グループ情報: $groupInfo');
+      final ownerId = groupInfo['owner_id'] as String;
+      
+      // メンバー一覧を取得
       final response = await client
           .from('group_members')
           .select('user_id, role, temp_owner_until, user_profiles(*)')
           .eq('group_id', groupId);
+          
+      print('メンバー取得結果: ${response.length}');
+      
+      // メンバー一覧にオーナーが含まれているかチェック
+      bool ownerIncluded = false;
+      for (var member in response) {
+        if (member['user_id'] == ownerId) {
+          ownerIncluded = true;
+          print('オーナーはメンバー一覧に含まれています');
+          break;
+        }
+      }
+      
+      // オーナーが含まれていない場合、追加する
+      if (!ownerIncluded) {
+        print('オーナーをメンバー一覧に追加します: $ownerId');
+        
+        try {
+          // オーナーのuser_profileを取得
+          final ownerProfile = await client
+              .from('user_profiles')
+              .select('*')
+              .eq('id', ownerId)
+              .single();
+              
+          print('オーナープロファイル: $ownerProfile');
+          
+          // オーナーをメンバーデータとして追加
+          final ownerMember = {
+            'user_id': ownerId,
+            'role': 'owner',
+            'temp_owner_until': null,
+            'user_profiles': ownerProfile,
+          };
+          
+          // メンバーテーブルにも追加する
+          try {
+            await client
+                .from('group_members')
+                .upsert({
+                  'group_id': groupId,
+                  'user_id': ownerId,
+                  'role': 'owner',
+                });
+          } catch (e) {
+            print('メンバーテーブル追加エラー: $e');
+            // エラーは無視して続行
+          }
+          
+          // メンバー一覧にオーナーを追加
+          response.add(ownerMember);
+        } catch (e) {
+          print('オーナー情報取得エラー: $e');
+          // エラーは無視して続行
+        }
+      }
       
       return response;
     } catch (e) {
+      print('メンバー取得エラー: $e');
       rethrow;
     }
   }

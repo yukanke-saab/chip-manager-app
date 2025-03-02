@@ -297,9 +297,16 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       return const Card(
         child: Padding(
           padding: EdgeInsets.all(16),
-          child: Text('メンバーがいません'),
+          child: Text('メンバーがいません。まずメンバーを招待してください。'),
         ),
       );
+    }
+
+    // 一時的にメンバーがいない場合のダミーオーナー追加
+    if (_selectedMemberId == null && _members.isNotEmpty) {
+      setState(() {
+        _selectedMemberId = _members[0].userId;
+      });
     }
 
     return Card(
