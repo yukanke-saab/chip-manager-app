@@ -17,25 +17,30 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   void initState() {
     super.initState();
-    _initSession();
+    _navigateToHome();
   }
 
-  Future<void> _initSession() async {
+  Future<void> _navigateToHome() async {
     // スプラッシュ画面を少し表示するためのディレイ
     await Future.delayed(const Duration(seconds: 2));
     
     if (!mounted) return;
     
     try {
-      // 匿名セッションを確保
-      await _authRepository.getOrCreateAnonymousSession();
+      // 匿名セッションを試行するが、失敗してもグループ画面に進む
+      try {
+        await _authRepository.getOrCreateAnonymousSession();
+      } catch (e) {
+        print('匿名セッション作成エラー: $e');
+        // エラーを無視して続行
+      }
       
       if (!mounted) return;
       
       // グループ一覧画面へ移動
       context.go('/groups');
     } catch (e) {
-      print('匿名セッション作成エラー: $e');
+      print('予期せぬエラー: $e');
       
       if (!mounted) return;
       

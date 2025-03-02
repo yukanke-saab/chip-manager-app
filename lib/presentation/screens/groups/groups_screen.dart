@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/themes/app_colors.dart';
 import '../../../data/models/group_model.dart';
 import '../../../data/repositories/auth_repository.dart';
@@ -19,7 +20,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
   bool _isLoading = true;
   List<GroupModel> _groups = [];
   String? _errorMessage;
-  bool _isAnonymous = true;
+  bool _isLoggedIn = false;
   
   @override
   void initState() {
@@ -28,11 +29,10 @@ class _GroupsScreenState extends State<GroupsScreen> {
     _loadGroups();
   }
   
-  Future<void> _checkLoginStatus() async {
-    final isAnonymous = await _authRepository.isAnonymousUser();
-    
+  void _checkLoginStatus() {
+    final user = Supabase.instance.client.auth.currentUser;
     setState(() {
-      _isAnonymous = isAnonymous;
+      _isLoggedIn = user != null;
     });
   }
   
@@ -43,10 +43,19 @@ class _GroupsScreenState extends State<GroupsScreen> {
         _errorMessage = null;
       });
       
-      final groups = await _groupRepository.getUserGroups();
+      // ログインしている場合のみグループを読み込む
+      if (_isLoggedIn) {
+        final groups = await _groupRepository.getUserGroups();
+        setState(() {
+          _groups = groups;
+        });
+      } else {
+        setState(() {
+          _groups = [];
+        });
+      }
       
       setState(() {
-        _groups = groups;
         _isLoading = false;
       });
     } catch (e) {
@@ -62,7 +71,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
       await _authRepository.signOut();
       
       setState(() {
-        _isAnonymous = true;
+        _isLoggedIn = false;
       });
       
       // グループ一覧を再読み込み
@@ -88,23 +97,28 @@ class _GroupsScreenState extends State<GroupsScreen> {
       appBar: AppBar(
         title: const Text('グループ一覧'),
         actions: [
-          _isAnonymous
-              ? TextButton(
-                  onPressed: _navigateToLogin,
-                  child: const Text('ログイン'),
-                )
-              : IconButton(
+          _isLoggedIn
+              ? IconButton(
                   icon: const Icon(Icons.logout),
                   onPressed: _logout,
                   tooltip: 'ログアウト',
+                )
+              : TextButton(
+                  onPressed: _navigateToLogin,
+                  child: const Text('ログイン'),
                 ),
         ],
       ),
       body: _buildBody(),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          // TODO: グループ作成画面へ遷移
-          // context.push('/groups/create');
+          // グループを作成するにはログインが必要
+          if (!_isLoggedIn) {
+            _showLoginPromptDialog();
+          } else {
+            // TODO: グループ作成画面へ遷移
+            // context.push('/groups/create');
+          }
         },
         tooltip: '新しいグループを作成',
         child: const Icon(Icons.add),
@@ -134,6 +148,48 @@ class _GroupsScreenState extends State<GroupsScreen> {
             ElevatedButton(
               onPressed: _loadGroups,
               child: const Text('再試行'),
+            ),
+          ],
+        ),
+      );
+    }
+    
+    if (!_isLoggedIn) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(
+              Icons.group_outlined,
+              size: 64,
+              color: AppColors.textLight,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Chip Managerへようこそ',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            const Text('ポーカーチップを簡単に管理できるアプリです'),
+            const SizedBox(height: 32),
+            const Text('アプリを利用するにはアカウントが必要です'),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton(
+                  onPressed: _navigateToLogin,
+                  child: const Text('ログイン'),
+                ),
+                const SizedBox(width: 16),
+                ElevatedButton(
+                  onPressed: _navigateToRegister,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.secondary,
+                  ),
+                  child: const Text('新規登録'),
+                ),
+              ],
             ),
           ],
         ),
@@ -172,7 +228,6 @@ class _GroupsScreenState extends State<GroupsScreen> {
                 const SizedBox(width: 16),
                 OutlinedButton.icon(
                   onPressed: () {
-                    // TODO: 招待コード入力ダイアログを表示
                     _showJoinGroupDialog();
                   },
                   icon: const Icon(Icons.group_add),
@@ -180,18 +235,6 @@ class _GroupsScreenState extends State<GroupsScreen> {
                 ),
               ],
             ),
-            if (_isAnonymous) ...[
-              const SizedBox(height: 32),
-              const Text('会員登録するとデータを永続化できます'),
-              const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed: _navigateToRegister,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.secondary,
-                ),
-                child: const Text('会員登録'),
-              ),
-            ],
           ],
         ),
       );
@@ -264,6 +307,36 @@ class _GroupsScreenState extends State<GroupsScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+  
+  void _showLoginPromptDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('アカウントが必要です'),
+        content: const Text('この機能を利用するにはログインが必要です。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _navigateToLogin();
+            },
+            child: const Text('ログイン'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _navigateToRegister();
+            },
+            child: const Text('新規登録'),
+          ),
+        ],
       ),
     );
   }
