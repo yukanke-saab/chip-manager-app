@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'data/repositories/auth_repository.dart';
 import 'presentation/screens/auth/login_screen.dart';
 import 'presentation/screens/auth/register_screen.dart';
 import 'presentation/screens/auth/forgot_password_screen.dart';
@@ -10,8 +11,8 @@ import 'presentation/screens/groups/groups_screen.dart';
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
   
-  // Supabaseインスタンス
-  static final supabase = Supabase.instance.client;
+  // 認証リポジトリ
+  static final _authRepository = AuthRepository();
 
   static final GoRouter router = GoRouter(
     initialLocation: '/',
@@ -19,28 +20,22 @@ class AppRouter {
     debugLogDiagnostics: true,
     
     // リダイレクト処理
-    redirect: (BuildContext context, GoRouterState state) {
-      final isLoggedIn = supabase.auth.currentUser != null;
-      final isGoingToLogin = state.matchedLocation == '/login' || 
-                             state.matchedLocation == '/register' ||
-                             state.matchedLocation == '/forgot-password';
-      
+    redirect: (BuildContext context, GoRouterState state) async {
       // スプラッシュ画面はリダイレクトしない
       if (state.matchedLocation == '/') {
         return null;
       }
       
-      // 認証が必要なページに未ログインでアクセスした場合、ログインページへリダイレクト
-      if (!isLoggedIn && !isGoingToLogin) {
-        return '/login';
+      // 認証関連のページへは自由にアクセス可能
+      final isAuthPage = state.matchedLocation == '/login' || 
+                         state.matchedLocation == '/register' ||
+                         state.matchedLocation == '/forgot-password';
+      
+      if (isAuthPage) {
+        return null;
       }
       
-      // ログイン済みでログインページにアクセスした場合、グループ一覧画面へリダイレクト
-      if (isLoggedIn && isGoingToLogin) {
-        return '/groups';
-      }
-      
-      // それ以外の場合、リダイレクトなし
+      // それ以外の場合はリダイレクトなし（匿名セッションが自動的に作成されるため）
       return null;
     },
     

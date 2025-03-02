@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/themes/app_colors.dart';
+import '../../data/repositories/auth_repository.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({Key? key}) : super(key: key);
@@ -12,26 +12,31 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  final _authRepository = AuthRepository();
+  
   @override
   void initState() {
     super.initState();
-    _redirectUser();
+    _initSession();
   }
 
-  Future<void> _redirectUser() async {
+  Future<void> _initSession() async {
+    // ロード感を出すために少し待機
     await Future.delayed(const Duration(seconds: 2));
     
     if (!mounted) return;
     
-    // 現在のユーザーを確認
-    final user = Supabase.instance.client.auth.currentUser;
-    
-    if (user != null) {
-      // ユーザーがログイン済みの場合はグループ一覧画面へ
+    try {
+      // 匿名セッションを確保
+      await _authRepository.getOrCreateAnonymousSession();
+      
+      // グループ一覧画面へ移動
       context.go('/groups');
-    } else {
-      // 未ログインの場合はログイン画面へ
-      context.go('/login');
+    } catch (e) {
+      // エラーが発生した場合はログイン画面へ
+      if (mounted) {
+        context.go('/login');
+      }
     }
   }
 

@@ -11,6 +11,16 @@ class AuthRepository {
   // 現在のユーザーを取得
   User? get currentUser => _dataSource.currentUser;
   
+  // 匿名ユーザーかどうかを確認
+  Future<bool> isAnonymousUser() async {
+    return await _dataSource.isAnonymousUser();
+  }
+  
+  // 匿名セッションを作成または取得
+  Future<User?> getOrCreateAnonymousSession() async {
+    return await _dataSource.getOrCreateAnonymousSession();
+  }
+  
   // ユーザーのサインアップ
   Future<User?> signUp({
     required String email,

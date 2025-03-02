@@ -1,5 +1,8 @@
 import 'dart:math';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 import '../../core/constants/app_constants.dart';
 
 class SupabaseDataSource {
@@ -15,8 +18,82 @@ class SupabaseDataSource {
   // Supabaseクライアントのゲッター
   SupabaseClient get client => Supabase.instance.client;
   
+  // セキュアストレージ
+  final _secureStorage = const FlutterSecureStorage();
+  
+  // デバイスID用のキー
+  static const String _deviceIdKey = 'device_id';
+  
   // 現在のユーザーを取得
   User? get currentUser => client.auth.currentUser;
+  
+  // デバイスIDを取得（なければ生成）
+  Future<String> getDeviceId() async {
+    final prefs = await SharedPreferences.getInstance();
+    String? deviceId = prefs.getString(_deviceIdKey);
+    
+    if (deviceId == null) {
+      deviceId = const Uuid().v4();
+      await prefs.setString(_deviceIdKey, deviceId);
+    }
+    
+    return deviceId;
+  }
+  
+  // 匿名ユーザーかどうかを確認
+  Future<bool> isAnonymousUser() async {
+    final user = currentUser;
+    if (user == null) return true;
+    
+    try {
+      final userProfile = await getUserProfile(user.id);
+      return userProfile['is_anonymous'] == true;
+    } catch (e) {
+      return true;
+    }
+  }
+  
+  // 匿名セッションを作成または取得
+  Future<User?> getOrCreateAnonymousSession() async {
+    final user = currentUser;
+    if (user != null) return user;
+    
+    try {
+      // デバイスIDをパスワードとして使用
+      final deviceId = await getDeviceId();
+      final email = '$deviceId@anonymous.user';
+      final password = deviceId;
+      
+      try {
+        // 既存の匿名ユーザーでログイン試行
+        final response = await client.auth.signInWithPassword(
+          email: email,
+          password: password,
+        );
+        return response.user;
+      } catch (e) {
+        // 存在しなければ新規作成
+        final response = await client.auth.signUp(
+          email: email,
+          password: password,
+        );
+        
+        final newUser = response.user;
+        if (newUser != null) {
+          // 匿名フラグを立てる
+          await client.from('user_profiles').upsert({
+            'id': newUser.id,
+            'display_name': 'Anonymous User',
+            'is_anonymous': true,
+          });
+        }
+        
+        return newUser;
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
   
   // ユーザーのサインアップ
   Future<User?> signUp({
@@ -25,23 +102,51 @@ class SupabaseDataSource {
     required String displayName,
   }) async {
     try {
-      final response = await client.auth.signUp(
-        email: email,
-        password: password,
-      );
+      // 現在のユーザー状態を確認
+      final currentUser = client.auth.currentUser;
+      final isAnonymous = currentUser != null ? await isAnonymousUser() : false;
       
-      final user = response.user;
-      
-      if (user != null) {
-        // ユーザープロファイルを作成
-        await client.from('user_profiles').insert({
-          'id': user.id,
+      if (isAnonymous) {
+        // 匿名ユーザーの場合は、本登録に切り替える
+        await client.auth.updateUser(
+          UserAttributes(
+            email: email,
+            password: password,
+          ),
+        );
+        
+        // プロフィールを更新
+        await client.from('user_profiles').update({
           'display_name': displayName,
-          'avatar_url': null,
-        });
+          'is_anonymous': false,
+        }).eq('id', currentUser!.id);
+        
+        return client.auth.currentUser;
+      } else {
+        // 新規ユーザー登録
+        final response = await client.auth.signUp(
+          email: email,
+          password: password,
+        );
+        
+        final user = response.user;
+        
+        if (user != null) {
+          // プロフィールを作成（トリガーでの自動作成に失敗する場合の対策）
+          try {
+            await client.from('user_profiles').upsert({
+              'id': user.id,
+              'display_name': displayName,
+              'is_anonymous': false,
+            });
+          } catch (e) {
+            // upsertなので既にデータがあれば上書き、なければ挿入
+            print('Profile creation error: $e');
+          }
+        }
+        
+        return user;
       }
-      
-      return user;
     } catch (e) {
       rethrow;
     }
@@ -68,6 +173,8 @@ class SupabaseDataSource {
   Future<void> signOut() async {
     try {
       await client.auth.signOut();
+      // 匿名セッションを自動的に作成
+      await getOrCreateAnonymousSession();
     } catch (e) {
       rethrow;
     }
@@ -116,9 +223,10 @@ class SupabaseDataSource {
     String? chipUnit,
   }) async {
     try {
-      final userId = currentUser?.id;
-      if (userId == null) {
-        throw Exception('ユーザーが認証されていません');
+      // 匿名セッションがなければ作成
+      final user = await getOrCreateAnonymousSession();
+      if (user == null) {
+        throw Exception('セッションの作成に失敗しました');
       }
       
       // ランダムな招待コードを生成
@@ -131,7 +239,7 @@ class SupabaseDataSource {
             'description': description,
             'chip_unit': chipUnit ?? '1',
             'invite_code': inviteCode,
-            'owner_id': userId,
+            'owner_id': user.id,
           })
           .select('id')
           .single();
@@ -143,7 +251,7 @@ class SupabaseDataSource {
           .from('group_members')
           .insert({
             'group_id': groupId,
-            'user_id': userId,
+            'user_id': user.id,
             'role': 'owner',
           });
       
@@ -193,15 +301,16 @@ class SupabaseDataSource {
   // ユーザーが所属するグループの取得
   Future<List<Map<String, dynamic>>> getUserGroups() async {
     try {
-      final userId = currentUser?.id;
-      if (userId == null) {
-        throw Exception('ユーザーが認証されていません');
+      // 匿名セッションがなければ作成
+      final user = await getOrCreateAnonymousSession();
+      if (user == null) {
+        throw Exception('セッションの作成に失敗しました');
       }
       
       final response = await client
           .from('group_members')
           .select('group_id, role, groups(*)')
-          .eq('user_id', userId);
+          .eq('user_id', user.id);
       
       return response;
     } catch (e) {
@@ -241,9 +350,10 @@ class SupabaseDataSource {
   // グループへの参加（招待コード経由）
   Future<void> joinGroupByInviteCode(String inviteCode) async {
     try {
-      final userId = currentUser?.id;
-      if (userId == null) {
-        throw Exception('ユーザーが認証されていません');
+      // 匿名セッションがなければ作成
+      final user = await getOrCreateAnonymousSession();
+      if (user == null) {
+        throw Exception('セッションの作成に失敗しました');
       }
       
       // グループIDを取得
@@ -260,7 +370,7 @@ class SupabaseDataSource {
           .from('group_members')
           .insert({
             'group_id': groupId,
-            'user_id': userId,
+            'user_id': user.id,
             'role': 'member',
           });
     } catch (e) {
@@ -271,16 +381,17 @@ class SupabaseDataSource {
   // グループからの脱退
   Future<void> leaveGroup(String groupId) async {
     try {
-      final userId = currentUser?.id;
-      if (userId == null) {
-        throw Exception('ユーザーが認証されていません');
+      // 匿名セッションがなければ作成
+      final user = await getOrCreateAnonymousSession();
+      if (user == null) {
+        throw Exception('セッションの作成に失敗しました');
       }
       
       await client
           .from('group_members')
           .delete()
           .eq('group_id', groupId)
-          .eq('user_id', userId);
+          .eq('user_id', user.id);
     } catch (e) {
       rethrow;
     }
@@ -296,17 +407,8 @@ class SupabaseDataSource {
       if (tempOwnerUntil != null) {
         updateData['temp_owner_until'] = tempOwnerUntil.toIso8601String();
       } else if (newRole != 'temporary_owner') {
-        // nullを直接設定せず、フィールドを削除または更新
-        await client
-            .from('group_members')
-            .update({
-              'role': newRole,
-              'temp_owner_until': '',  // 空文字列を使用するか
-              // または、このフィールドを含めない
-            })
-            .eq('group_id', groupId)
-            .eq('user_id', userId);
-        return;
+        // 空文字列を使用
+        updateData['temp_owner_until'] = '';
       }
       
       await client
@@ -327,9 +429,10 @@ class SupabaseDataSource {
     String? note,
   }) async {
     try {
-      final operatorId = currentUser?.id;
-      if (operatorId == null) {
-        throw Exception('ユーザーが認証されていません');
+      // 匿名セッションがなければ作成
+      final operator = await getOrCreateAnonymousSession();
+      if (operator == null) {
+        throw Exception('セッションの作成に失敗しました');
       }
       
       await client
@@ -338,7 +441,7 @@ class SupabaseDataSource {
             'group_id': groupId,
             'user_id': userId,
             'amount': amount,
-            'operator_id': operatorId,
+            'operator_id': operator.id,
             'note': note,
           });
     } catch (e) {
