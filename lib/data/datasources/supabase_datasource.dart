@@ -289,14 +289,24 @@ class SupabaseDataSource {
   // メンバーのロール変更
   Future<void> updateMemberRole(String groupId, String userId, String newRole, {DateTime? tempOwnerUntil}) async {
     try {
-      final updateData = {
+      final Map<String, dynamic> updateData = {
         'role': newRole,
       };
       
       if (tempOwnerUntil != null) {
         updateData['temp_owner_until'] = tempOwnerUntil.toIso8601String();
       } else if (newRole != 'temporary_owner') {
-        updateData['temp_owner_until'] = null;
+        // nullを直接設定せず、フィールドを削除または更新
+        await client
+            .from('group_members')
+            .update({
+              'role': newRole,
+              'temp_owner_until': '',  // 空文字列を使用するか
+              // または、このフィールドを含めない
+            })
+            .eq('group_id', groupId)
+            .eq('user_id', userId);
+        return;
       }
       
       await client
