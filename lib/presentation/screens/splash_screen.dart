@@ -40,7 +40,6 @@ class _SplashScreenState extends State<SplashScreen> {
     // 認証の成功・失敗に関わらず、グループ一覧画面へ移動
     context.go('/groups');
   }
-  }
 
   @override
   Widget build(BuildContext context) {
