@@ -7,9 +7,8 @@ class AppConstants {
   static const String appVersion = '1.0.0';
   
   // Supabase設定
-  // TODO: 実際の値に変更する
-  static const String supabaseUrl = 'https://your-project-url.supabase.co';
-  static const String supabaseAnonKey = 'your-anon-key';
+  static const String supabaseUrl = 'https://xlhrouvprzbnrzlvskbj.supabase.co';
+  static const String supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsaHJvdXZwcnpibnJ6bHZza2JqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDA4ODEwNzMsImV4cCI6MjA1NjQ1NzA3M30.V1H3oodJ9jYkITK1PIygBRa-PTP_nOHb7t6IKGoMxNQ';
   
   // ストレージキー
   static const String authTokenKey = 'auth_token';
