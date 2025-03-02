@@ -21,7 +21,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _initSession() async {
-    // ロード感を出すために少し待機
+    // スプラッシュ画面を少し表示するためのディレイ
     await Future.delayed(const Duration(seconds: 2));
     
     if (!mounted) return;
@@ -30,13 +30,17 @@ class _SplashScreenState extends State<SplashScreen> {
       // 匿名セッションを確保
       await _authRepository.getOrCreateAnonymousSession();
       
+      if (!mounted) return;
+      
       // グループ一覧画面へ移動
       context.go('/groups');
     } catch (e) {
-      // エラーが発生した場合はログイン画面へ
-      if (mounted) {
-        context.go('/login');
-      }
+      print('匿名セッション作成エラー: $e');
+      
+      if (!mounted) return;
+      
+      // エラーがあっても移動（UIで対応）
+      context.go('/groups');
     }
   }
 

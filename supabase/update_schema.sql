@@ -1,48 +1,95 @@
--- user_profilesテーブルに匿名フラグを追加
-ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS is_anonymous BOOLEAN DEFAULT FALSE;
+-- user_profilesテーブルの更新
+-- is_anonymousカラムがない場合は追加
+ALTER TABLE IF EXISTS user_profiles ADD COLUMN IF NOT EXISTS is_anonymous BOOLEAN DEFAULT FALSE;
 
--- 既存のトリガーを一旦削除
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-DROP FUNCTION IF EXISTS public.handle_new_user();
-
--- 新しいトリガー関数を作成
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  -- 既存のプロフィールがない場合のみ挿入
-  INSERT INTO public.user_profiles (id, display_name, is_anonymous)
-  VALUES (NEW.id, COALESCE(NEW.email, 'ゲストユーザー'), NEW.email LIKE 'anonymous-%@example.com')
-  ON CONFLICT (id) DO NOTHING; -- IDが重複する場合は何もしない
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- 新しいトリガーを作成
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
-
--- Row Level Securityポリシーを更新
+-- RLSポリシーを更新
 ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
 
--- ユーザーは自分のプロフィールを見ることができる
-CREATE POLICY "Users can view their own profile" ON user_profiles
-  FOR SELECT USING (auth.uid() = id);
+-- パブリックアクセスポリシー - 誰でも読み取り可能（グループメンバーなら）
+CREATE POLICY IF NOT EXISTS "Anyone can read user profiles" ON user_profiles
+  FOR SELECT USING (true);
 
--- ユーザーは自分のプロフィールを更新できる
-CREATE POLICY "Users can update their own profile" ON user_profiles
+-- ユーザー自身の更新のみ許可
+CREATE POLICY IF NOT EXISTS "Users can update their own profiles" ON user_profiles
   FOR UPDATE USING (auth.uid() = id);
 
--- グループメンバーはお互いのプロフィールを見ることができる
-CREATE POLICY "Group members can view other members' profiles" ON user_profiles
+-- ユーザー自身の削除のみ許可
+CREATE POLICY IF NOT EXISTS "Users can delete their own profiles" ON user_profiles
+  FOR DELETE USING (auth.uid() = id);
+
+-- ユーザー自身の挿入のみ許可（または管理者）
+CREATE POLICY IF NOT EXISTS "Users can insert their own profiles" ON user_profiles
+  FOR INSERT WITH CHECK (auth.uid() = id OR auth.uid() IN (SELECT id FROM auth.users WHERE role = 'service_role'));
+
+-- groupsテーブル更新 - パブリックフラグ追加
+ALTER TABLE IF EXISTS groups ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT FALSE;
+
+-- 認証ユーザーはグループを作成可能
+CREATE POLICY IF NOT EXISTS "Authenticated users can create groups" ON groups
+  FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+-- グループオーナーのみが更新可能
+CREATE POLICY IF NOT EXISTS "Group owners can update groups" ON groups
+  FOR UPDATE USING (auth.uid() = owner_id);
+
+-- グループオーナーのみが削除可能
+CREATE POLICY IF NOT EXISTS "Group owners can delete groups" ON groups
+  FOR DELETE USING (auth.uid() = owner_id);
+
+-- メンバーはグループを閲覧可能、公開グループは誰でも閲覧可能
+CREATE POLICY IF NOT EXISTS "Members can view their groups and public groups" ON groups
   FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM group_members gm1
-      WHERE gm1.user_id = auth.uid()
-      AND EXISTS (
-        SELECT 1 FROM group_members gm2
-        WHERE gm2.group_id = gm1.group_id
-        AND gm2.user_id = user_profiles.id
-      )
+    is_public = TRUE OR 
+    auth.uid() IN (
+      SELECT user_id FROM group_members WHERE group_id = id
+    )
+  );
+
+-- 匿名ユーザーに対するポリシー
+-- 匿名ユーザーもトランザクションを作成可能（グループメンバーであれば）
+CREATE POLICY IF NOT EXISTS "Group members can add transactions" ON chip_transactions
+  FOR INSERT WITH CHECK (
+    auth.uid() IN (
+      SELECT user_id FROM group_members 
+      WHERE group_id = chip_transactions.group_id 
+      AND (role = 'owner' OR role = 'temporary_owner')
+    )
+  );
+
+-- すべてのグループメンバーはトランザクションを閲覧可能
+CREATE POLICY IF NOT EXISTS "Group members can view transactions" ON chip_transactions
+  FOR SELECT USING (
+    auth.uid() IN (
+      SELECT user_id FROM group_members WHERE group_id = chip_transactions.group_id
+    )
+  );
+
+-- グループメンバーはメンバーリストを閲覧可能
+CREATE POLICY IF NOT EXISTS "Group members can view member list" ON group_members
+  FOR SELECT USING (
+    auth.uid() IN (
+      SELECT user_id FROM group_members WHERE group_id = group_members.group_id
+    )
+  );
+
+-- ユーザーは自分自身をグループに追加可能（招待コード経由）
+CREATE POLICY IF NOT EXISTS "Users can add themselves to groups" ON group_members
+  FOR INSERT WITH CHECK (
+    auth.uid() = user_id
+  );
+
+-- ユーザーは自分自身をグループから削除可能
+CREATE POLICY IF NOT EXISTS "Users can remove themselves from groups" ON group_members
+  FOR DELETE USING (
+    auth.uid() = user_id
+  );
+
+-- オーナーはメンバーを追加・削除・更新可能
+CREATE POLICY IF NOT EXISTS "Owners can manage group members" ON group_members
+  FOR ALL USING (
+    auth.uid() IN (
+      SELECT user_id FROM group_members 
+      WHERE group_id = group_members.group_id 
+      AND role = 'owner'
     )
   );

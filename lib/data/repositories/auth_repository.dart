@@ -72,12 +72,17 @@ class AuthRepository {
   }
   
   // ユーザープロファイルの取得
-  Future<UserProfileModel> getUserProfile(String userId) async {
+  Future<UserProfileModel?> getUserProfile([String? userId]) async {
     try {
-      final response = await _dataSource.getUserProfile(userId);
+      if (currentUser == null && userId == null) {
+        return null;
+      }
+      
+      final id = userId ?? currentUser!.id;
+      final response = await _dataSource.getUserProfile(id);
       return UserProfileModel.fromJson(response);
     } catch (e) {
-      rethrow;
+      return null;
     }
   }
   

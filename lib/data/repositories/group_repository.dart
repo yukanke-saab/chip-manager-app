@@ -63,17 +63,17 @@ class GroupRepository {
         return GroupModel.fromJson(groupData);
       }).toList();
     } catch (e) {
-      rethrow;
+      return [];
     }
   }
   
   // グループ詳細の取得
-  Future<GroupModel> getGroupDetails(String groupId) async {
+  Future<GroupModel?> getGroupDetails(String groupId) async {
     try {
       final response = await _dataSource.getGroupDetails(groupId);
       return GroupModel.fromJson(response);
     } catch (e) {
-      rethrow;
+      return null;
     }
   }
   
@@ -96,7 +96,7 @@ class GroupRepository {
         );
       }).toList();
     } catch (e) {
-      rethrow;
+      return [];
     }
   }
   

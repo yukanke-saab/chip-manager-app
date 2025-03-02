@@ -46,8 +46,14 @@ class SupabaseDataSource {
     if (user == null) return true;
     
     try {
-      final userProfile = await getUserProfile(user.id);
-      return userProfile['is_anonymous'] == true;
+      if (user.email == null) return true;
+      
+      // メールアドレスが一時的なものかチェック
+      if (user.email!.contains('temp-user-') && user.email!.endsWith('@chipmanager.app')) {
+        return true;
+      }
+      
+      return false;
     } catch (e) {
       return true;
     }
@@ -56,41 +62,65 @@ class SupabaseDataSource {
   // 匿名セッションを作成または取得
   Future<User?> getOrCreateAnonymousSession() async {
     final user = currentUser;
-    if (user != null) return user;
+    if (user != null) {
+      final isAnonymous = await isAnonymousUser();
+      if (isAnonymous) {
+        return user; // 既存の匿名ユーザー
+      }
+    }
     
     try {
-      // デバイスIDをパスワードとして使用（メールアドレス形式にフォーマット）
+      // デバイスIDを取得
       final deviceId = await getDeviceId();
-      final email = 'anonymous-${deviceId.substring(0, 8)}@example.com';
-      final password = 'Anonymous${deviceId}';
+      
+      // 一時的なメールアドレスを生成（ランダム要素を追加して重複を避ける）
+      final random = Random().nextInt(10000).toString().padLeft(4, '0');
+      final tempEmail = 'temp-user-${deviceId.substring(0, 8)}-$random@chipmanager.app';
+      final password = 'TempPassword${deviceId.substring(0, 8)}';
       
       try {
-        // 既存の匿名ユーザーでログイン試行
-        final response = await client.auth.signInWithPassword(
-          email: email,
-          password: password,
-        );
-        return response.user;
-      } catch (e) {
-        // 存在しなければ新規作成
+        // サインアップを試行
         final response = await client.auth.signUp(
-          email: email,
+          email: tempEmail,
           password: password,
+          data: {
+            'is_anonymous': true,
+            'device_id': deviceId,
+          },
         );
         
         final newUser = response.user;
         if (newUser != null) {
-          // 匿名フラグを立てる
-          await client.from('user_profiles').upsert({
-            'id': newUser.id,
-            'display_name': 'ゲストユーザー',
-            'is_anonymous': true,
-          });
+          // ユーザープロファイルを作成
+          try {
+            await client.from('user_profiles').insert({
+              'id': newUser.id,
+              'display_name': 'ゲストユーザー',
+              'is_anonymous': true,
+            });
+          } catch (e) {
+            // プロファイル作成エラーは無視（すでに存在する場合など）
+            print('Profile creation error: $e');
+          }
         }
         
         return newUser;
+      } catch (e) {
+        // サインアップに失敗した場合（既に存在する可能性）、サインインを試行
+        try {
+          final response = await client.auth.signInWithPassword(
+            email: tempEmail,
+            password: password,
+          );
+          return response.user;
+        } catch (e) {
+          print('既存ユーザーでのサインインにも失敗: $e');
+          // 新しいランダム要素で再試行
+          return getOrCreateAnonymousSession();
+        }
       }
     } catch (e) {
+      print('匿名ログインエラー: $e');
       rethrow;
     }
   }
@@ -102,45 +132,50 @@ class SupabaseDataSource {
     required String displayName,
   }) async {
     try {
-      // 現在のユーザー状態を確認
-      final currentUser = client.auth.currentUser;
-      final isAnonymous = currentUser != null ? await isAnonymousUser() : false;
+      final isAnonymous = await isAnonymousUser();
       
-      if (isAnonymous) {
-        // 匿名ユーザーの場合は、本登録に切り替える
+      if (isAnonymous && currentUser != null) {
+        // 匿名ユーザーを実ユーザーに変換
         await client.auth.updateUser(
           UserAttributes(
             email: email,
             password: password,
+            data: {
+              'is_anonymous': false,
+              'display_name': displayName,
+            },
           ),
         );
         
         // プロフィールを更新
-        await client.from('user_profiles').update({
+        await client.from('user_profiles').upsert({
+          'id': currentUser!.id,
           'display_name': displayName,
           'is_anonymous': false,
-        }).eq('id', currentUser!.id);
+        });
         
-        return client.auth.currentUser;
+        return currentUser;
       } else {
         // 新規ユーザー登録
         final response = await client.auth.signUp(
           email: email,
           password: password,
+          data: {
+            'display_name': displayName,
+            'is_anonymous': false,
+          },
         );
         
         final user = response.user;
-        
         if (user != null) {
-          // プロフィールを作成（トリガーでの自動作成に失敗する場合の対策）
           try {
-            await client.from('user_profiles').upsert({
+            await client.from('user_profiles').insert({
               'id': user.id,
               'display_name': displayName,
               'is_anonymous': false,
             });
           } catch (e) {
-            // upsertなので既にデータがあれば上書き、なければ挿入
+            // プロファイル作成エラーは無視
             print('Profile creation error: $e');
           }
         }
@@ -169,11 +204,11 @@ class SupabaseDataSource {
     }
   }
   
-  // ユーザーのサインアウト
+  // ユーザーのサインアウト後、匿名セッションを作成
   Future<void> signOut() async {
     try {
       await client.auth.signOut();
-      // 匿名セッションを自動的に作成
+      // 匿名セッションに切り替え
       await getOrCreateAnonymousSession();
     } catch (e) {
       rethrow;
@@ -200,6 +235,29 @@ class SupabaseDataSource {
       
       return response;
     } catch (e) {
+      // プロファイルが存在しなければ作成
+      if (userId == currentUser?.id) {
+        final userData = currentUser!.userMetadata ?? {};
+        final displayName = userData['display_name'] as String? ?? 'ゲストユーザー';
+        
+        try {
+          await client.from('user_profiles').insert({
+            'id': userId,
+            'display_name': displayName,
+            'is_anonymous': userData['is_anonymous'] as bool? ?? true,
+          });
+          
+          return {
+            'id': userId,
+            'display_name': displayName,
+            'is_anonymous': userData['is_anonymous'] as bool? ?? true,
+            'created_at': DateTime.now().toIso8601String(),
+          };
+        } catch (e) {
+          rethrow;
+        }
+      }
+      
       rethrow;
     }
   }
@@ -314,7 +372,7 @@ class SupabaseDataSource {
       
       return response;
     } catch (e) {
-      rethrow;
+      return [];
     }
   }
   
@@ -364,6 +422,19 @@ class SupabaseDataSource {
           .single();
       
       final groupId = groupResponse['id'] as String;
+      
+      // 既に参加済みか確認
+      final memberCheck = await client
+          .from('group_members')
+          .select('id')
+          .eq('group_id', groupId)
+          .eq('user_id', user.id)
+          .maybeSingle();
+      
+      if (memberCheck != null) {
+        // 既に参加済み
+        throw Exception('既にこのグループに参加しています');
+      }
       
       // メンバーとして追加
       await client

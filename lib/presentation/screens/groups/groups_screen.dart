@@ -19,11 +19,21 @@ class _GroupsScreenState extends State<GroupsScreen> {
   bool _isLoading = true;
   List<GroupModel> _groups = [];
   String? _errorMessage;
+  bool _isAnonymous = true;
   
   @override
   void initState() {
     super.initState();
+    _checkLoginStatus();
     _loadGroups();
+  }
+  
+  Future<void> _checkLoginStatus() async {
+    final isAnonymous = await _authRepository.isAnonymousUser();
+    
+    setState(() {
+      _isAnonymous = isAnonymous;
+    });
   }
   
   Future<void> _loadGroups() async {
@@ -51,15 +61,25 @@ class _GroupsScreenState extends State<GroupsScreen> {
     try {
       await _authRepository.signOut();
       
-      if (!mounted) return;
+      setState(() {
+        _isAnonymous = true;
+      });
       
-      // ログアウト成功時はログイン画面へ
-      context.go('/login');
+      // グループ一覧を再読み込み
+      _loadGroups();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('ログアウトに失敗しました: ${e.toString()}')),
       );
     }
+  }
+  
+  void _navigateToLogin() {
+    context.push('/login');
+  }
+  
+  void _navigateToRegister() {
+    context.push('/register');
   }
   
   @override
@@ -68,11 +88,16 @@ class _GroupsScreenState extends State<GroupsScreen> {
       appBar: AppBar(
         title: const Text('グループ一覧'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: _logout,
-            tooltip: 'ログアウト',
-          ),
+          _isAnonymous
+              ? TextButton(
+                  onPressed: _navigateToLogin,
+                  child: const Text('ログイン'),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.logout),
+                  onPressed: _logout,
+                  tooltip: 'ログアウト',
+                ),
         ],
       ),
       body: _buildBody(),
@@ -155,6 +180,18 @@ class _GroupsScreenState extends State<GroupsScreen> {
                 ),
               ],
             ),
+            if (_isAnonymous) ...[
+              const SizedBox(height: 32),
+              const Text('会員登録するとデータを永続化できます'),
+              const SizedBox(height: 8),
+              ElevatedButton(
+                onPressed: _navigateToRegister,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.secondary,
+                ),
+                child: const Text('会員登録'),
+              ),
+            ],
           ],
         ),
       );
