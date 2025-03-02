@@ -258,52 +258,65 @@ class SupabaseDataSource {
     String? chipUnit,
   }) async {
     try {
-      // 現在のユーザーを取得、なければ匿名セッションを作成を試みる
+      // 現在のユーザーを取得
       User? user = currentUser;
-      if (user == null) {
+      String? userId;
+      
+      if (user != null) {
+        userId = user.id;
+      } else {
         try {
+          // 匿名セッションを試行
           user = await getOrCreateAnonymousSession();
-          if (user == null) {
-            // ユーザーの取得が失敗しても、現在のセッションを再度確認
-            user = client.auth.currentUser;
+          if (user != null) {
+            userId = user.id;
           }
         } catch (e) {
           print('匿名セッション作成中のエラー: $e');
-          // 最終確認
-          user = client.auth.currentUser;
+          // 大事なのはグループ作成なので継続
         }
       }
       
-      // ユーザーが存在しない場合は例外を発生
-      if (user == null) {
-        throw Exception('セッションが存在しないため、グループを作成できません');
-      }
+      // デバイスIDを取得してフォールバックとして使用
+      final deviceId = await getDeviceId();
       
       // ランダムな招待コードを生成
       final inviteCode = _generateInviteCode();
       
+      // グループ作成データを準備
+      final groupData = {
+        'name': name,
+        'description': description,
+        'chip_unit': chipUnit ?? '1',
+        'invite_code': inviteCode,
+        // ユーザーIDがない場合はデバイスIDを使用
+        'owner_id': userId ?? deviceId,
+      };
+      
       final response = await client
           .from('groups')
-          .insert({
-            'name': name,
-            'description': description,
-            'chip_unit': chipUnit ?? '1',
-            'invite_code': inviteCode,
-            'owner_id': user.id,
-          })
+          .insert(groupData)
           .select('id')
           .single();
       
       final groupId = response['id'] as String;
       
       // 作成者をオーナーとしてグループメンバーに追加
+      final memberData = {
+        'group_id': groupId,
+        'user_id': userId ?? deviceId,
+        'role': 'owner',
+      };
+      
       await client
           .from('group_members')
-          .insert({
-            'group_id': groupId,
-            'user_id': user.id,
-            'role': 'owner',
-          });
+          .insert(memberData);
+      
+      // デバイスIDをローカルストレージに保存
+      final prefs = await SharedPreferences.getInstance();
+      final ownedGroups = prefs.getStringList('owned_groups') ?? [];
+      ownedGroups.add(groupId);
+      await prefs.setStringList('owned_groups', ownedGroups);
       
       return groupId;
     } catch (e) {
@@ -352,19 +365,65 @@ class SupabaseDataSource {
   // ユーザーが所属するグループの取得
   Future<List<Map<String, dynamic>>> getUserGroups() async {
     try {
-      // 匿名セッションがなければ作成
-      final user = await getOrCreateAnonymousSession();
-      if (user == null) {
-        throw Exception('セッションの作成に失敗しました');
+      // 現在のユーザーを取得
+      String? userId;
+      User? user = currentUser;
+      
+      if (user != null) {
+        userId = user.id;
+      } else {
+        try {
+          // 匿名セッションを試行
+          user = await getOrCreateAnonymousSession();
+          if (user != null) {
+            userId = user.id;
+          }
+        } catch (e) {
+          print('匿名セッション作成中のエラー: $e');
+          // 継続する
+        }
       }
       
+      // デバイスIDを取得
+      final deviceId = await getDeviceId();
+      
+      // ユーザーIDがあればそれで、なければデバイスIDでグループを検索
+      final targetId = userId ?? deviceId;
+      
+      // グループメンバーテーブルからグループを検索
       final response = await client
           .from('group_members')
           .select('group_id, role, groups(*)')
-          .eq('user_id', user.id);
+          .eq('user_id', targetId);
+      
+      // ローカルに保存されている所有グループを取得
+      final prefs = await SharedPreferences.getInstance();
+      final ownedGroups = prefs.getStringList('owned_groups') ?? [];
+      
+      // デバイスIDのみで作成したグループに対して追加取得
+      if (ownedGroups.isNotEmpty && userId == null) {
+        try {
+          final localGroups = await client
+              .from('groups')
+              .select('*')
+              .in_('id', ownedGroups);
+          
+          return [
+            ...response,
+            ...localGroups.map((group) => {
+              'group_id': group['id'],
+              'role': 'owner',
+              'groups': group,
+            }),
+          ];
+        } catch (e) {
+          print('ローカルグループ取得エラー: $e');
+        }
+      }
       
       return response;
     } catch (e) {
+      print('グループ一覧取得エラー: $e');
       return [];
     }
   }
@@ -401,11 +460,27 @@ class SupabaseDataSource {
   // グループへの参加（招待コード経由）
   Future<void> joinGroupByInviteCode(String inviteCode) async {
     try {
-      // 匿名セッションがなければ作成
-      final user = await getOrCreateAnonymousSession();
-      if (user == null) {
-        throw Exception('セッションの作成に失敗しました');
+      // 現在のユーザーを取得
+      User? user = currentUser;
+      String? userId;
+      
+      if (user != null) {
+        userId = user.id;
+      } else {
+        try {
+          // 匿名セッションを試行
+          user = await getOrCreateAnonymousSession();
+          if (user != null) {
+            userId = user.id;
+          }
+        } catch (e) {
+          print('匿名セッション作成中のエラー: $e');
+        }
       }
+      
+      // デバイスIDをフォールバックとして使用
+      final deviceId = await getDeviceId();
+      final targetId = userId ?? deviceId;
       
       // グループIDを取得
       final groupResponse = await client
@@ -421,7 +496,7 @@ class SupabaseDataSource {
           .from('group_members')
           .select('id')
           .eq('group_id', groupId)
-          .eq('user_id', user.id)
+          .eq('user_id', targetId)
           .maybeSingle();
       
       if (memberCheck != null) {
@@ -434,7 +509,7 @@ class SupabaseDataSource {
           .from('group_members')
           .insert({
             'group_id': groupId,
-            'user_id': user.id,
+            'user_id': targetId,
             'role': 'member',
           });
     } catch (e) {
