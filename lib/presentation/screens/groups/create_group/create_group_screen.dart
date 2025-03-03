@@ -153,8 +153,9 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
               TextFormField(
                 controller: _chipUnitController,
                 decoration: const InputDecoration(
-                  labelText: 'チップの最小単位',
-                  hintText: '例: 1, 5, 10 など',
+                  labelText: 'チップの基本単位',
+                  hintText: '例: 1, 5, 10, 100 など',
+                  helperText: 'チップの基本単位を設定します。空欄の場合は1が設定されます。',
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.number,

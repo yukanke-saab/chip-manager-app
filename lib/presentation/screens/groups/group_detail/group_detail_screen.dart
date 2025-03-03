@@ -203,7 +203,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
                       ? _group!.description
                       : '(説明はありません)'),
                   const SizedBox(height: 8),
-                  _buildInfoRow('チップ単位', _group!.chipUnit),
+                  _buildInfoRow('チップ単位', '基本単位: ${_group!.chipUnit}'),
                   const SizedBox(height: 8),
                   _buildInfoRow('招待コード', _group!.inviteCode),
                   const SizedBox(height: 8),

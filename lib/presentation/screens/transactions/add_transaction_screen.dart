@@ -185,8 +185,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             Text(
-              'チップ単位: ${_group!.chipUnit}',
-              style: Theme.of(context).textTheme.bodySmall,
+              '基本単位: ${_group!.chipUnit} (数字のみ入力してください)',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppColors.textLight,
+              ),
             ),
             const SizedBox(height: 24),
             
@@ -227,7 +229,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               controller: _amountController,
               decoration: InputDecoration(
                 hintText: 'チップ数を入力',
-                prefixText: _group?.chipUnit ?? '1',
+                suffixText: _group?.chipUnit ?? '1',
                 border: const OutlineInputBorder(),
               ),
               keyboardType: TextInputType.number,
