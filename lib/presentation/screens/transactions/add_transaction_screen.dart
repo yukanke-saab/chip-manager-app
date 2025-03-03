@@ -1,15 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/themes/app_colors.dart';
 import '../../../data/models/group_model.dart';
 import '../../../data/repositories/group_repository.dart';
 
 class AddTransactionScreen extends StatefulWidget {
   final String groupId;
+  final String? memberId; // QRコードから取得したメンバーIDを受け取るオプションパラメータ
 
   const AddTransactionScreen({
     Key? key,
     required this.groupId,
+    this.memberId,
   }) : super(key: key);
 
   @override
@@ -30,6 +33,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   bool _isLoading = true;
   bool _isSubmitting = false;
   String? _errorMessage;
+  bool _isQrScanned = false; // QRコードによるメンバー選択かどうか
 
   @override
   void initState() {
@@ -66,8 +70,28 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         _isLoading = false;
       });
       
-      // メンバーがいれば最初のメンバーを選択
-      if (members.isNotEmpty) {
+      // QRコードからメンバーIDが指定されている場合はそのメンバーを選択
+      if (widget.memberId != null) {
+        bool foundMember = false;
+        for (var member in members) {
+          if (member.userId == widget.memberId) {
+            setState(() {
+              _selectedMemberId = widget.memberId;
+              _isQrScanned = true;
+            });
+            foundMember = true;
+            break;
+          }
+        }
+        
+        if (!foundMember && members.isNotEmpty) {
+          // 指定されたメンバーIDが見つからない場合は最初のメンバーを選択
+          setState(() {
+            _selectedMemberId = members[0].userId;
+          });
+        }
+      } else if (members.isNotEmpty) {
+        // メンバーIDが指定されていない場合は最初のメンバーを選択
         setState(() {
           _selectedMemberId = members[0].userId;
         });
@@ -133,6 +157,17 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('チップ取引'),
+        actions: [
+          // QRコードスキャンボタン
+          if (!_isQrScanned)
+            IconButton(
+              icon: const Icon(Icons.qr_code_scanner),
+              onPressed: () {
+                context.push('/groups/${widget.groupId}/scan-qr');
+              },
+              tooltip: 'QRコードをスキャン',
+            ),
+        ],
       ),
       body: _buildBody(),
     );
@@ -192,17 +227,27 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
             ),
             const SizedBox(height: 24),
             
-            // メンバー選択
-            const Text(
-              'メンバーを選択',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
+            // QRコードによるメンバー選択時の表示
+            if (_isQrScanned && _selectedMemberId != null)
+              _buildSelectedMemberCard(),
+            
+            // 通常のメンバー選択
+            if (!_isQrScanned)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'メンバーを選択',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildMemberSelector(),
+                  const SizedBox(height: 24),
+                ],
               ),
-            ),
-            const SizedBox(height: 8),
-            _buildMemberSelector(),
-            const SizedBox(height: 24),
             
             // 加算/減算の切り替え
             const Text(
@@ -291,6 +336,82 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  // QRコードでスキャンしたメンバーの表示カード
+  Widget _buildSelectedMemberCard() {
+    final selectedMember = _members.firstWhere(
+      (member) => member.userId == _selectedMemberId,
+      orElse: () => null,
+    );
+    
+    if (selectedMember == null) {
+      return const Card(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('選択されたメンバーが見つかりません'),
+        ),
+      );
+    }
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'QRコードで読み取ったメンバー',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Card(
+          color: AppColors.primaryLight.withOpacity(0.2),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: AppColors.primary,
+                  radius: 24,
+                  child: Text(
+                    selectedMember.profile.displayName[0].toUpperCase(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        selectedMember.profile.displayName,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        selectedMember.isOwner ? 'オーナー' : 'メンバー',
+                        style: TextStyle(
+                          color: selectedMember.isOwner ? Colors.red : Colors.blue,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.qr_code, color: AppColors.primary),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+      ],
     );
   }
 

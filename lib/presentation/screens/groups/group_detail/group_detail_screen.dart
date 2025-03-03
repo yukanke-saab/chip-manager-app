@@ -106,7 +106,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
           // リロードボタン
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadGroupDetails,
+            onPressed: _loadGroupData,
             tooltip: '再読み込み',
           ),
           // オーナーの場合は編集ボタンを表示
@@ -389,7 +389,8 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
         // 現在のタブに応じたアクション
         switch (_tabController.index) {
           case 0: // 概要タブ
-            // TODO: QRコード生成画面へ遷移
+            // QRコード生成画面へ遷移
+            context.push('/groups/${widget.groupId}/display-qr');
             break;
           case 1: // メンバータブ
             if (_isOwner) {
@@ -398,7 +399,13 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
             break;
           case 2: // 取引履歴タブ
             // チップ取引画面へ遷移
-            context.push('/groups/${widget.groupId}/transactions/add');
+            if (_isOwner) {
+              // オーナーはQRコードスキャン画面へ
+              context.push('/groups/${widget.groupId}/scan-qr');
+            } else {
+              // 通常メンバーはQRコード表示画面へ
+              context.push('/groups/${widget.groupId}/display-qr');
+            }
             break;
         }
       },
@@ -414,7 +421,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
       case 1:
         return _isOwner ? 'メンバーを追加' : '詳細を表示';
       case 2:
-        return 'チップを追加';
+        return _isOwner ? 'QRコードをスキャン' : 'QRコードを表示';
       default:
         return '';
     }
@@ -427,7 +434,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
       case 1:
         return _isOwner ? Icons.person_add : Icons.info;
       case 2:
-        return Icons.add;
+        return _isOwner ? Icons.qr_code_scanner : Icons.qr_code;
       default:
         return Icons.add;
     }
@@ -461,5 +468,10 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> with SingleTicker
 
   String _formatDate(DateTime date) {
     return '${date.year}/${date.month}/${date.day} ${date.hour}:${date.minute.toString().padLeft(2, '0')}';
+  }
+  
+  // データの再読み込み
+  void _loadGroupData() {
+    _loadGroupDetails();
   }
 }

@@ -8,6 +8,7 @@ import 'presentation/screens/groups/groups_screen.dart';
 import 'presentation/screens/groups/create_group.dart';
 import 'presentation/screens/groups/group_detail.dart';
 import 'presentation/screens/transactions/index.dart';
+import 'presentation/screens/qr_code/index.dart';
 
 class AppRouter {
   static final _rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -64,7 +65,30 @@ class AppRouter {
         path: '/groups/:id/transactions/add',
         builder: (context, state) {
           final groupId = state.pathParameters['id']!;
-          return AddTransactionScreen(groupId: groupId);
+          // QRコードからのメンバーIDを取得
+          final memberId = state.uri.queryParameters['memberId'];
+          return AddTransactionScreen(
+            groupId: groupId, 
+            memberId: memberId,
+          );
+        },
+      ),
+      
+      // QRコード表示画面
+      GoRoute(
+        path: '/groups/:id/display-qr',
+        builder: (context, state) {
+          final groupId = state.pathParameters['id']!;
+          return DisplayQRScreen(groupId: groupId);
+        },
+      ),
+      
+      // QRコードスキャン画面
+      GoRoute(
+        path: '/groups/:id/scan-qr',
+        builder: (context, state) {
+          final groupId = state.pathParameters['id']!;
+          return ScanQRScreen(groupId: groupId);
         },
       ),
       
