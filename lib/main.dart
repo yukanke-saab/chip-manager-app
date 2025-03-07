@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'data/repositories/auth_repository.dart';
 import 'core/constants/app_constants.dart';
 import 'routes.dart';
 import 'core/themes/app_theme.dart';
+import 'services/ad_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +30,12 @@ void main() async {
     url: AppConstants.supabaseUrl,
     anonKey: AppConstants.supabaseAnonKey,
   );
+  
+  // AdMobの初期化
+  await MobileAds.instance.initialize();
+  
+  // 広告サービスの初期化、事前ロード
+  await AdService().initialize();
   
   runApp(const MyApp());
 }

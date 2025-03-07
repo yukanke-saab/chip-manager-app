@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/themes/app_colors.dart';
+import '../../../core/utils/ui_utils/ad_dialog_utils.dart';
 import '../../../data/models/group_model.dart';
 import '../../../data/repositories/group_repository.dart';
+import '../../../services/ad_service.dart';
 
 class AddTransactionScreen extends StatefulWidget {
   final String groupId;
@@ -39,6 +41,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   void initState() {
     super.initState();
     _loadGroupData();
+    
+    // 広告サービスを初期化、事前ロードを開始
+    AdService().initialize();
+    AdService().preloadRewardedAd();
   }
 
   @override
@@ -135,6 +141,12 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
           const SnackBar(content: Text('チップ取引を記録しました')),
         );
 
+        // QRコード経由の場合は広告を表示
+        if (_isQrScanned) {
+          // 広告ダイアログを表示
+          await AdDialogUtils.showTransactionAdDialog(context);
+        }
+        
         // 前の画面に戻る
         Navigator.pop(context, true); // 更新があったことを伝える
       }
