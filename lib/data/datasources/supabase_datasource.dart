@@ -315,8 +315,12 @@ class SupabaseDataSource {
       // デバイスIDをローカルストレージに保存
       final prefs = await SharedPreferences.getInstance();
       final ownedGroups = prefs.getStringList('owned_groups') ?? [];
-      ownedGroups.add(groupId);
-      await prefs.setStringList('owned_groups', ownedGroups);
+      
+      // 重複しないようにする
+      if (!ownedGroups.contains(groupId)) {
+        ownedGroups.add(groupId);
+        await prefs.setStringList('owned_groups', ownedGroups);
+      }
       
       print('作成したグループID: $groupId');
       print('ローカル保存済みグループIDs: $ownedGroups');
@@ -397,6 +401,8 @@ class SupabaseDataSource {
       final targetId = userId ?? deviceId;
       print('グループ検索用ID: $targetId');
       
+      // 重複除去用のセット
+      final Set<String> processedGroupIds = {};
       List<Map<String, dynamic>> result = [];
       
       // グループメンバーテーブルからグループを検索
@@ -407,7 +413,14 @@ class SupabaseDataSource {
             .eq('user_id', targetId);
         
         print('メンバーテーブルから取得したグループ数: ${response.length}');
-        result.addAll(response);
+        
+        for (var item in response) {
+          final groupId = item['group_id'] as String;
+          if (!processedGroupIds.contains(groupId)) {
+            processedGroupIds.add(groupId);
+            result.add(item);
+          }
+        }
       } catch (e) {
         print('メンバーテーブルからの取得エラー: $e');
       }
@@ -423,23 +436,26 @@ class SupabaseDataSource {
       // デバイスIDのみで作成したグループに対して追加取得
       if (ownedGroups.isNotEmpty) {
         try {
-          // ここではシンプルなアプローチとして、すべてのグループを取得
+          // グループIDのリストでフィルタリングするクエリを作成
           final allGroups = await client
               .from('groups')
-              .select('*');
+              .select('*')
+              .inFilter('id', ownedGroups);
           
-          // ローカルに保存されたグループのみをフィルタリング
-          final filteredGroups = allGroups.where((group) => 
-              ownedGroups.contains(group['id'].toString())).toList();
+          print('ローカル保存グループの取得数: ${allGroups.length}');
           
-          print('ローカル保存グループの取得数: ${filteredGroups.length}');
-          
-          // 結果に追加
-          result.addAll(filteredGroups.map((group) => {
-            'group_id': group['id'],
-            'role': 'owner',
-            'groups': group,
-          }));
+          // 重複をチェックしながら結果に追加
+          for (var group in allGroups) {
+            final groupId = group['id'] as String;
+            if (!processedGroupIds.contains(groupId)) {
+              processedGroupIds.add(groupId);
+              result.add({
+                'group_id': groupId,
+                'role': 'owner',
+                'groups': group,
+              });
+            }
+          }
         } catch (e) {
           print('ローカルグループ取得エラー: $e');
         }
@@ -454,11 +470,19 @@ class SupabaseDataSource {
               .select('*');
           
           print('すべてのグループ数: ${allGroups.length}');
-          result.addAll(allGroups.map((group) => {
-            'group_id': group['id'],
-            'role': 'member',
-            'groups': group,
-          }));
+          
+          // 重複をチェックしながら結果に追加
+          for (var group in allGroups) {
+            final groupId = group['id'] as String;
+            if (!processedGroupIds.contains(groupId)) {
+              processedGroupIds.add(groupId);
+              result.add({
+                'group_id': groupId,
+                'role': 'member',
+                'groups': group,
+              });
+            }
+          }
         } catch (e) {
           print('すべてのグループ取得エラー: $e');
         }
@@ -500,17 +524,59 @@ class SupabaseDataSource {
       print('グループ情報: $groupInfo');
       final ownerId = groupInfo['owner_id'] as String;
       
-      // メンバー一覧を取得
-      final response = await client
-          .from('group_members')
-          .select('user_id, role, temp_owner_until, user_profiles(*)')
-          .eq('group_id', groupId);
-          
-      print('メンバー取得結果: ${response.length}');
+      // 問題点: group_membersとuser_profilesの間に外部キー関係がない
+      // 解決策: 別々にデータを取得して手動で結合する
+      final List<Map<String, dynamic>> result = [];
       
-      // メンバー一覧にオーナーが含まれているかチェック
+      try {
+        // メンバーリストを取得
+        final members = await client
+            .from('group_members')
+            .select('user_id, role, temp_owner_until')
+            .eq('group_id', groupId);
+            
+        print('メンバーリスト取得結果: ${members.length}');
+        
+        // 各メンバーのプロフィールを取得して結合
+        for (var member in members) {
+          final userId = member['user_id'] as String;
+          
+          try {
+            final profile = await client
+                .from('user_profiles')
+                .select('*')
+                .eq('id', userId)
+                .single();
+                
+            result.add({
+              'user_id': userId,
+              'role': member['role'],
+              'temp_owner_until': member['temp_owner_until'],
+              'user_profiles': profile,
+            });
+          } catch (e) {
+            print('メンバープロフィール取得エラー ($userId): $e');
+            // プロフィールが取得できなければダミーデータを使用
+            result.add({
+              'user_id': userId,
+              'role': member['role'],
+              'temp_owner_until': member['temp_owner_until'],
+              'user_profiles': {
+                'id': userId,
+                'display_name': 'メンバー',
+                'is_anonymous': true,
+                'created_at': DateTime.now().toIso8601String(),
+              },
+            });
+          }
+        }
+      } catch (e) {
+        print('メンバー一覧取得エラー: $e');
+      }
+      
+      // オーナーを確認
       bool ownerIncluded = false;
-      for (var member in response) {
+      for (var member in result) {
         if (member['user_id'] == ownerId) {
           ownerIncluded = true;
           print('オーナーはメンバー一覧に含まれています');
@@ -518,29 +584,26 @@ class SupabaseDataSource {
         }
       }
       
-      // オーナーが含まれていない場合、追加する
+      // オーナーが含まれていない場合は追加
       if (!ownerIncluded) {
-        print('オーナーをメンバー一覧に追加します: $ownerId');
+        print('オーナーをメンバー一覧に追加: $ownerId');
         
         try {
-          // オーナーのuser_profileを取得
+          // オーナーのプロフィールを取得
           final ownerProfile = await client
               .from('user_profiles')
               .select('*')
               .eq('id', ownerId)
               .single();
               
-          print('オーナープロファイル: $ownerProfile');
-          
-          // オーナーをメンバーデータとして追加
-          final ownerMember = {
+          result.add({
             'user_id': ownerId,
             'role': 'owner',
             'temp_owner_until': null,
             'user_profiles': ownerProfile,
-          };
+          });
           
-          // メンバーテーブルにも追加する
+          // メンバーテーブルにも追加
           try {
             await client
                 .from('group_members')
@@ -549,23 +612,33 @@ class SupabaseDataSource {
                   'user_id': ownerId,
                   'role': 'owner',
                 });
+            print('オーナーをメンバーテーブルに追加しました');
           } catch (e) {
-            print('メンバーテーブル追加エラー: $e');
-            // エラーは無視して続行
+            print('オーナーをメンバーテーブルに追加できませんでした: $e');
           }
-          
-          // メンバー一覧にオーナーを追加
-          response.add(ownerMember);
         } catch (e) {
-          print('オーナー情報取得エラー: $e');
-          // エラーは無視して続行
+          print('オーナープロフィール取得エラー: $e');
+          
+          // プロフィールが取得できなくても、ダミーデータでオーナーを追加
+          result.add({
+            'user_id': ownerId,
+            'role': 'owner',
+            'temp_owner_until': null,
+            'user_profiles': {
+              'id': ownerId,
+              'display_name': 'オーナー',
+              'is_anonymous': false,
+              'created_at': DateTime.now().toIso8601String(),
+            },
+          });
         }
       }
       
-      return response;
+      print('最終メンバー数: ${result.length}');
+      return result;
     } catch (e) {
       print('メンバー取得エラー: $e');
-      rethrow;
+      return [];  // エラーの場合は空のリストを返す
     }
   }
   
@@ -603,10 +676,10 @@ class SupabaseDataSource {
       
       final groupId = groupResponse['id'] as String;
       
-      // 既に参加済みか確認
+      // 既に参加済みか確認 - idカラム参照を削除
       final memberCheck = await client
           .from('group_members')
-          .select('id')
+          .select('*')  // idカラムを明示的に指定せず、全てのカラムを取得
           .eq('group_id', groupId)
           .eq('user_id', targetId)
           .maybeSingle();
@@ -624,6 +697,15 @@ class SupabaseDataSource {
             'user_id': targetId,
             'role': 'member',
           });
+      
+      // グループIDをローカルストレージにも保存（重複を防ぐため）
+      final prefs = await SharedPreferences.getInstance();
+      final joinedGroups = prefs.getStringList('joined_groups') ?? [];
+      
+      if (!joinedGroups.contains(groupId)) {
+        joinedGroups.add(groupId);
+        await prefs.setStringList('joined_groups', joinedGroups);
+      }
     } catch (e) {
       rethrow;
     }
@@ -680,11 +762,20 @@ class SupabaseDataSource {
     String? note,
   }) async {
     try {
-      // 匿名セッションがなければ作成
-      final operator = await getOrCreateAnonymousSession();
+      // 現在のユーザーを取得
+      User? operator = currentUser;
+      String operatorId;
+      
       if (operator == null) {
-        throw Exception('セッションの作成に失敗しました');
+        try {
+          operator = await getOrCreateAnonymousSession();
+        } catch (e) {
+          print('セッション取得エラー: $e');
+        }
       }
+      
+      // オペレーターID（取引記録者）
+      operatorId = operator?.id ?? await getDeviceId();
       
       await client
           .from('chip_transactions')
@@ -692,10 +783,11 @@ class SupabaseDataSource {
             'group_id': groupId,
             'user_id': userId,
             'amount': amount,
-            'operator_id': operator.id,
+            'operator_id': operatorId,
             'note': note,
           });
     } catch (e) {
+      print('チップ取引作成エラー: $e');
       rethrow;
     }
   }
@@ -703,48 +795,99 @@ class SupabaseDataSource {
   // ユーザーのチップ残高取得
   Future<double> getUserBalance(String groupId, String userId) async {
     try {
-      final response = await client
-          .from('chip_balances')
-          .select('balance')
-          .eq('group_id', groupId)
-          .eq('user_id', userId)
-          .maybeSingle();
+      // 直接SQL集計を使用
+      final query = '''
+        SELECT COALESCE(SUM(amount), 0) as balance
+        FROM chip_transactions
+        WHERE group_id = '${groupId}'
+        AND user_id = '${userId}'
+      ''';
       
-      if (response == null) return 0.0;
-      return (response['balance'] as num).toDouble();
-    } catch (e) {
-      return 0.0;
-    }
-  }
-  
-  // ユーザーの取引履歴取得
-  Future<List<Map<String, dynamic>>> getUserTransactions(String groupId, String userId) async {
-    try {
-      final response = await client
-          .from('chip_transactions')
-          .select('*')
-          .eq('group_id', groupId)
-          .eq('user_id', userId)
-          .order('created_at', ascending: false);
+      final response = await client.rpc('get_user_balance', params: {
+        'group_id_param': groupId,
+        'user_id_param': userId,
+      }).select();
       
-      return response;
+      if (response.isEmpty) return 0.0;
+      return (response[0]['balance'] as num?)?.toDouble() ?? 0.0;
     } catch (e) {
-      rethrow;
+      print('残高取得エラー: $e');
+      
+      // フォールバック: 取引から直接計算
+      try {
+        final transactions = await client
+            .from('chip_transactions')
+            .select('amount')
+            .eq('group_id', groupId)
+            .eq('user_id', userId);
+        
+        double balance = 0.0;
+        for (var transaction in transactions) {
+          balance += (transaction['amount'] as num).toDouble();
+        }
+        return balance;
+      } catch (e) {
+        print('フォールバック残高計算エラー: $e');
+        return 0.0;
+      }
     }
   }
   
   // グループの取引履歴取得
   Future<List<Map<String, dynamic>>> getGroupTransactions(String groupId) async {
     try {
-      final response = await client
+      // 取引とユーザープロフィールを別々に取得
+      final transactions = await client
           .from('chip_transactions')
-          .select('*, user_profiles!inner(*)')
+          .select('*')
           .eq('group_id', groupId)
           .order('created_at', ascending: false);
       
-      return response;
+      // 取引に含まれるすべてのユーザーIDを抽出
+      final userIds = transactions.map((t) => t['user_id'] as String).toSet().toList();
+      final operatorIds = transactions.map((t) => t['operator_id'] as String).toSet().toList();
+      final allUserIds = {...userIds, ...operatorIds}.toList();
+      
+      // ユーザープロフィールを一括取得
+      Map<String, Map<String, dynamic>> userProfiles = {};
+      if (allUserIds.isNotEmpty) {
+        try {
+          final profiles = await client
+              .from('user_profiles')
+              .select('*')
+              .inFilter('id', allUserIds);
+          
+          // IDをキーとするマップに変換
+          for (var profile in profiles) {
+            userProfiles[profile['id'] as String] = profile;
+          }
+        } catch (e) {
+          print('ユーザープロフィール一括取得エラー: $e');
+        }
+      }
+      
+      // 取引にプロフィール情報を付加
+      List<Map<String, dynamic>> result = [];
+      for (var transaction in transactions) {
+        final userId = transaction['user_id'] as String;
+        final userProfile = userProfiles[userId] ?? {
+          'id': userId,
+          'display_name': 'ユーザー',
+          'is_anonymous': true,
+        };
+        
+        final resultTransaction = {
+          ...transaction,
+          'user_profiles': userProfile,
+        };
+        
+        result.add(resultTransaction);
+      }
+      
+      return result;
     } catch (e) {
-      rethrow;
+      print('取引履歴取得エラー: $e');
+      return [];
     }
   }
   
