@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:io' show Platform;
 import '../../../core/themes/app_colors.dart';
 import '../../../data/models/group_model.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/group_repository.dart';
 import '../../../core/utils/ui_utils/snackbar_utils.dart';
+import '../../../data/repositories/ad_notification_repository.dart';
+import '../../../core/utils/ui_utils/ad_dialog_utils.dart';
+import '../../../data/models/ad_notification_model.dart';
 
 class GroupsScreen extends StatefulWidget {
   const GroupsScreen({Key? key}) : super(key: key);
@@ -17,6 +21,7 @@ class GroupsScreen extends StatefulWidget {
 class _GroupsScreenState extends State<GroupsScreen> {
   final _authRepository = AuthRepository();
   final _groupRepository = GroupRepository();
+  final _adNotificationRepository = AdNotificationRepository();
   
   bool _isLoading = true;
   List<GroupModel> _groups = [];
@@ -24,11 +29,17 @@ class _GroupsScreenState extends State<GroupsScreen> {
   bool _isLoggedIn = false;
   bool _isAnonymous = true;
   
+  // 広告通知関連
+  List<AdNotificationModel> _adNotifications = [];
+  Stream<List<AdNotificationModel>>? _notificationsStream;
+  
   @override
   void initState() {
     super.initState();
     _checkLoginStatus();
     _loadGroups();
+    _setupNotificationsListener();
+    _checkPendingNotifications();
   }
   
   Future<void> _checkLoginStatus() async {
@@ -56,6 +67,124 @@ class _GroupsScreenState extends State<GroupsScreen> {
         _isLoggedIn = user != null && !isAnonymous;
       });
     }
+  }
+  
+  // 通知リスナーを設定
+  void _setupNotificationsListener() {
+    if (Platform.isAndroid || Platform.isIOS) {
+      try {
+        _notificationsStream = _adNotificationRepository.subscribeToNotifications();
+
+        // ストリーム購読
+        _notificationsStream?.listen((notifications) {
+          if (mounted) {
+            setState(() {
+              _adNotifications = notifications;
+            });
+            
+            // 新しい通知があればチェック
+            if (notifications.isNotEmpty) {
+              _handleNewNotifications(notifications);
+            }
+          }
+        }, onError: (e) {
+          print('通知リスナーエラー: $e');
+        });
+      } catch (e) {
+        print('通知ストリーム設定エラー: $e');
+      }
+    }
+  }
+  
+  // 既存の通知をチェック
+  Future<void> _checkPendingNotifications() async {
+    if (Platform.isAndroid || Platform.isIOS) {
+      try {
+        final notifications = await _adNotificationRepository.getUnshownNotifications();
+        if (notifications.isNotEmpty && mounted) {
+          setState(() {
+            _adNotifications = notifications;
+          });
+          
+          // クリックして広告を表示するように促す
+          // 動画広告は自動再生できないため、ユーザーのアクションが必要
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (notifications.length == 1) {
+              _showNotificationDialog(
+                '広告表示があります',
+                'チップ取引が完了しました。\n広告を視聴して取引を確定しますか？',
+                notifications.first,
+              );
+            } else if (notifications.length > 1) {
+              _showNotificationDialog(
+                '複数の広告表示があります',
+                '${notifications.length}件のチップ取引が完了しました。\n広告を視聴して取引を確定しますか？',
+                notifications.first,
+              );
+            }
+          });
+        }
+      } catch (e) {
+        print('既存通知チェックエラー: $e');
+      }
+    }
+  }
+  
+  // 新しい通知を処理
+  void _handleNewNotifications(List<AdNotificationModel> notifications) {
+    if (notifications.isEmpty) return;
+    
+    // 最新の通知を取得
+    final latestNotification = notifications.first;
+    
+    // 通知ダイアログを表示
+    _showNotificationDialog(
+      '新しいチップ取引',
+      'チップ取引が完了しました。\n広告を視聴して取引を確定しますか？',
+      latestNotification,
+    );
+  }
+  
+  // 通知ダイアログを表示
+  void _showNotificationDialog(String title, String message, AdNotificationModel notification) {
+    if (!mounted) return;
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+            child: const Text('後で視聴する'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              
+              // 広告表示ダイアログを表示
+              final adShown = await AdDialogUtils.showTransactionAdDialog(context);
+              
+              // 広告が表示されたら通知を表示済みに更新
+              if (adShown) {
+                await _adNotificationRepository.markAsShown(notification.id);
+                
+                // 通知リストから除外
+                if (mounted) {
+                  setState(() {
+                    _adNotifications.removeWhere((n) => n.id == notification.id);
+                  });
+                }
+              }
+            },
+            child: const Text('広告を視聴する'),
+          ),
+        ],
+      ),
+    );
   }
   
   Future<void> _loadGroups() async {
@@ -126,6 +255,51 @@ class _GroupsScreenState extends State<GroupsScreen> {
       appBar: AppBar(
         title: const Text('グループ一覧'),
         actions: [
+          // 広告通知バッジ
+          if (_adNotifications.isNotEmpty)
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.notifications),
+                  onPressed: () {
+                    // 最新の通知を表示
+                    if (_adNotifications.isNotEmpty) {
+                      _showNotificationDialog(
+                        '未視聴の広告',
+                        'チップ取引が完了しています。広告を視聴して取引を確定しますか？',
+                        _adNotifications.first,
+                      );
+                    }
+                  },
+                  tooltip: '広告通知',
+                ),
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    child: Text(
+                      _adNotifications.length > 9 ? '9+' : _adNotifications.length.toString(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           // リロードボタン
           IconButton(
             icon: const Icon(Icons.refresh),

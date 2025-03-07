@@ -7,6 +7,7 @@ import '../../../core/utils/ui_utils/ad_dialog_utils.dart';
 import '../../../data/models/group_model.dart';
 import '../../../data/repositories/group_repository.dart';
 import '../../../services/ad_service.dart';
+import '../../../data/repositories/ad_notification_repository.dart';
 
 class AddTransactionScreen extends StatefulWidget {
   final String groupId;
@@ -28,6 +29,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   final _noteController = TextEditingController();
   
   final _groupRepository = GroupRepository();
+  final _adNotificationRepository = AdNotificationRepository();
   
   GroupModel? _group;
   List<dynamic> _members = [];
@@ -136,24 +138,32 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       }
 
       // 取引を追加
-      await _groupRepository.addChipTransaction(
+      final transactionResult = await _groupRepository.addChipTransaction(
         groupId: widget.groupId,
         userId: _selectedMemberId!,
         amount: amount,
         note: _noteController.text.trim(),
       );
 
+      // QRコード経由の場合は、スキャンされたユーザーに広告表示通知を送信
+      if (_isQrScanned && _selectedMemberId != null) {
+        try {
+          await _adNotificationRepository.createAdNotification(
+            targetUserId: _selectedMemberId!,
+            groupId: widget.groupId,
+            transactionId: transactionResult?['id'] as String?,
+          );
+        } catch (e) {
+          print('広告通知の送信に失敗しました: $e');
+          // 広告通知の失敗は取引自体の成功に影響しない
+        }
+      }
+
       if (mounted) {
         // 成功メッセージを表示
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('チップ取引を記録しました')),
         );
-
-        // QRコード経由の場合は広告を表示
-        if (_isQrScanned) {
-          // 広告ダイアログを表示
-          await AdDialogUtils.showTransactionAdDialog(context);
-        }
         
         // 前の画面に戻る
         Navigator.pop(context, true); // 更新があったことを伝える
