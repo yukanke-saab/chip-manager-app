@@ -77,8 +77,8 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
     });
     
     try {
-      // まず、ニックネームが設定されていれば更新
-      if (_isAnonymous && _nicknameController.text.trim().isNotEmpty) {
+      // ニックネームを設定（匿名ユーザー・登録ユーザー問わず）
+      if (_nicknameController.text.trim().isNotEmpty) {
         final user = _authRepository.currentUser;
         if (user != null) {
           await _authRepository.updateUserProfile(
@@ -156,52 +156,51 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                   ),
                 ),
               
-              // 匿名ユーザーの場合はニックネーム入力を表示
-              if (_isAnonymous)
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.info_outline, color: Colors.blue),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'ニックネームを設定すると、他のメンバーがあなたを識別しやすくなります。',
-                              style: TextStyle(color: Colors.blue),
-                            ),
+              // ニックネーム入力フィールド（すべてのユーザーに表示）
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.blue),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'このグループであなたが表示されるニックネームを設定してください。',
+                            style: TextStyle(color: Colors.blue),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                    TextFormField(
-                      controller: _nicknameController,
-                      decoration: const InputDecoration(
-                        labelText: 'あなたのニックネーム',
-                        hintText: '例: たろう',
-                        border: OutlineInputBorder(),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'ニックネームを入力してください';
-                        }
-                        if (value.length > 30) {
-                          return 'ニックネームは30文字以内で入力してください';
-                        }
-                        return null;
-                      },
-                      textInputAction: TextInputAction.next,
+                  ),
+                  TextFormField(
+                    controller: _nicknameController,
+                    decoration: const InputDecoration(
+                      labelText: 'あなたのニックネーム',
+                      hintText: '例: たろう',
+                      border: OutlineInputBorder(),
                     ),
-                    const SizedBox(height: 24),
-                  ],
-                ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'ニックネームを入力してください';
+                      }
+                      if (value.length > 30) {
+                        return 'ニックネームは30文字以内で入力してください';
+                      }
+                      return null;
+                    },
+                    textInputAction: TextInputAction.next,
+                  ),
+                  const SizedBox(height: 24),
+                ],
+              ),
               
               // グループ名
               TextFormField(

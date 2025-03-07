@@ -5,6 +5,7 @@ import '../../../core/themes/app_colors.dart';
 import '../../../data/models/group_model.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/group_repository.dart';
+import '../../../core/utils/ui_utils/snackbar_utils.dart';
 
 class GroupsScreen extends StatefulWidget {
   const GroupsScreen({Key? key}) : super(key: key);
@@ -106,9 +107,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
       _loadGroups();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('ログアウトに失敗しました: ${e.toString()}')),
-        );
+        SnackbarUtils.showErrorSnackBar(context, 'ログアウトに失敗しました: ${e.toString()}');
       }
     }
   }
@@ -371,6 +370,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
     
     // スキャフォールドキーを保存（BuildContextを保持するため）
     final scaffoldContext = ScaffoldMessenger.of(context);
+    final currentContext = context; // 現在のコンテキストを保存
     
     showDialog(
       context: context,
@@ -383,37 +383,36 @@ class _GroupsScreenState extends State<GroupsScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (_isAnonymous) ...[
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.info_outline, color: Colors.blue),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'グループに参加する前に、あなたのニックネームを入力してください。',
-                              style: TextStyle(color: Colors.blue),
-                            ),
+                  // ニックネーム入力（匿名ユーザーかどうかに関わらず表示）
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.blue),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'このグループであなたが表示されるニックネームを入力してください。',
+                            style: TextStyle(color: Colors.blue),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                    TextField(
-                      controller: _nicknameController,
-                      decoration: const InputDecoration(
-                        labelText: 'あなたのニックネーム',
-                        hintText: '例: たろう',
-                      ),
-                      textInputAction: TextInputAction.next,
+                  ),
+                  TextField(
+                    controller: _nicknameController,
+                    decoration: const InputDecoration(
+                      labelText: 'あなたのニックネーム',
+                      hintText: '例: たろう',
                     ),
-                    const SizedBox(height: 16),
-                  ],
+                    textInputAction: TextInputAction.next,
+                  ),
+                  const SizedBox(height: 16),
                   const Text('招待コードを入力してください'),
                   const SizedBox(height: 16),
                   TextField(
@@ -441,8 +440,8 @@ class _GroupsScreenState extends State<GroupsScreen> {
                     return;
                   }
                   
-                  // 匿名ユーザーの場合はニックネームが必須
-                  if (_isAnonymous && _nicknameController.text.trim().isEmpty) {
+                  // ニックネームのバリデーション
+                  if (_nicknameController.text.trim().isEmpty) {
                     ScaffoldMessenger.of(dialogContext).showSnackBar(
                       const SnackBar(content: Text('ニックネームを入力してください')),
                     );
@@ -452,31 +451,35 @@ class _GroupsScreenState extends State<GroupsScreen> {
                   Navigator.pop(dialogContext);
                   
                   try {
-                    // ニックネームが入力されていれば、プロフィールを更新
-                    if (_isAnonymous && _nicknameController.text.trim().isNotEmpty) {
-                      final user = _authRepository.currentUser;
-                      if (user != null) {
-                        await _authRepository.updateUserProfile(
-                          userId: user.id,
-                          displayName: _nicknameController.text.trim(),
-                        );
-                      }
+                    // ニックネームを更新（匿名ユーザー・登録ユーザー問わず）
+                    final user = _authRepository.currentUser;
+                    if (user != null && _nicknameController.text.trim().isNotEmpty) {
+                      await _authRepository.updateUserProfile(
+                        userId: user.id,
+                        displayName: _nicknameController.text.trim(),
+                      );
                     }
                     
                     // グループに参加
                     await _groupRepository.joinGroupByInviteCode(code);
                     
-                    // 成功メッセージを表示
-                    scaffoldContext.showSnackBar(
-                      const SnackBar(content: Text('グループに参加しました！')),
-                    );
+                    // 成功メッセージを表示（安全なスナックバー表示を使用）
+                    if (currentContext.mounted) {
+                      SnackbarUtils.showSuccessSnackBar(
+                        currentContext, 
+                        'グループに参加しました！'
+                      );
+                    }
                     
                     // グループ一覧を再読み込み
                     _loadGroups();
                   } catch (e) {
-                    scaffoldContext.showSnackBar(
-                      SnackBar(content: Text('参加に失敗しました: ${e.toString()}')),
-                    );
+                    if (currentContext.mounted) {
+                      SnackbarUtils.showErrorSnackBar(
+                        currentContext,
+                        '参加に失敗しました: ${e.toString()}'
+                      );
+                    }
                   }
                 },
                 child: const Text('参加'),
