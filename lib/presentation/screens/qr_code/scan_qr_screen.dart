@@ -75,19 +75,19 @@ class _ScanQRScreenState extends State<ScanQRScreen> with WidgetsBindingObserver
         detectionSpeed: DetectionSpeed.noDuplicates,
       );
       
-      // エラーハンドリングを別途設定
-      _scannerController?.onScannerStarted = (startResult) {
-        if (startResult.hasError) {
-          if (mounted) {
-            setState(() {
-              _errorMessage = 'カメラの初期化に失敗しました: ${startResult.errorMessage}';
-              _isCameraPermissionGranted = false;
-              _isCameraInitialized = false;
-            });
-          }
-          print('カメラエラー: ${startResult.errorMessage}');
+      // 3.5.7ではonScannerStartedは存在しないため、別の方法でエラーをハンドリング
+      try {
+        _scannerController?.start();
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _errorMessage = 'カメラの初期化に失敗しました: $e';
+            _isCameraPermissionGranted = false;
+            _isCameraInitialized = false;
+          });
         }
-      };
+        print('カメラエラー: $e');
+      }
       
       if (mounted) {
         setState(() {
