@@ -75,11 +75,9 @@ class _ScanQRScreenState extends State<ScanQRScreen> with WidgetsBindingObserver
         torchEnabled: false,
         // より激しくスキャンするように設定変更
         detectionSpeed: DetectionSpeed.normal,
-        // フォーマットを明示的に指定
+        // フォーマットを明示的に指定し、QRコードを優先
         formats: const [
           BarcodeFormat.qrCode,
-          BarcodeFormat.pdf417,
-          BarcodeFormat.dataMatrix,
         ],
       );
       
@@ -266,105 +264,57 @@ class _ScanQRScreenState extends State<ScanQRScreen> with WidgetsBindingObserver
     );
   }
   
-  // 手動でQRコードを入力するダイアログを表示 (改善版)
+  // 手動でQRコードを入力するダイアログを表示
   void _showManualEntryDialog() {
-    String? selectedUserId;
-    
-    // グループメンバーのリストを取得
-    _groupRepository.getGroupMembers(widget.groupId).then((members) {
-      if (!mounted) return;
-      
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('メンバーを選択'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('カメラが使用できない場合は、メンバーをリストから選択してください。'),
-              const SizedBox(height: 8),
-              const Divider(),
-              const SizedBox(height: 8),
-              const Text('メンバーリスト:', style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              if (members.isEmpty)
-                const Text('このグループにはメンバーがいません'),
-              if (members.isNotEmpty)
-                SizedBox(
-                  height: 200,
-                  width: 300,
-                  child: ListView.builder(
-                    itemCount: members.length,
-                    itemBuilder: (context, index) {
-                      final member = members[index];
-                      return RadioListTile<String>(
-                        title: Text(member.nickname ?? '名称なし'),
-                        subtitle: Text('参加日: ${member.joinedAt != null ? 
-                          DateFormat('yyyy/MM/dd').format(member.joinedAt!) : '不明'}'),
-                        value: member.userId,
-                        groupValue: selectedUserId,
-                        onChanged: (value) {
-                          selectedUserId = value;
-                          Navigator.of(context).pop(value);
-                        },
-                      );
-                    },
-                  ),
-                ),
-              const SizedBox(height: 16),
-              const Text('または、QRコードの内容を手動で入力する:'),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _manualCodeController,
-                decoration: const InputDecoration(
-                  labelText: 'QRコードテキスト',
-                  border: OutlineInputBorder(),
-                  hintText: '{"Key":"value",...}',
-                ),
-                maxLines: 3,
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('QRコードを手動入力'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('カメラが使用できない場合は、メンバーがQRコードを生成画面で表示しているデータを入力してください。'),
+            const SizedBox(height: 4),
+            const Text('チップ取引を安全に行うため、有効なQRコードデータが必要です。',
+              style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _manualCodeController,
+              decoration: const InputDecoration(
+                labelText: 'QRコードテキスト',
+                border: OutlineInputBorder(),
+                hintText: '{"type":"chip_transaction","group_id":"xxx",...}',
               ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('キャンセル'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                if (_manualCodeController.text.isNotEmpty) {
-                  try {
-                    _processQRData(_manualCodeController.text);
-                  } catch (e) {
-                    if (mounted) {
-                      SnackbarUtils.showErrorSnackBar(
-                        context, 
-                        '無効なQRコードデータです: ${e.toString()}'
-                      );
-                    }
-                  }
-                }
-              },
-              child: const Text('QRコード入力を処理'),
+              maxLines: 5,
             ),
           ],
         ),
-      ).then((selectedId) {
-        if (selectedId != null && selectedId is String) {
-          // メンバーが選択された場合は取引画面へ遷移
-          context.push('/groups/${widget.groupId}/transactions/add?memberId=$selectedId');
-        }
-      });
-    }).catchError((error) {
-      if (mounted) {
-        SnackbarUtils.showErrorSnackBar(
-          context, 
-          'メンバーリストの取得に失敗しました: ${error.toString()}'
-        );
-      }
-    });
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('キャンセル'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              if (_manualCodeController.text.isNotEmpty) {
+                try {
+                  _processQRData(_manualCodeController.text);
+                } catch (e) {
+                  if (mounted) {
+                    SnackbarUtils.showErrorSnackBar(
+                      context, 
+                      '無効なQRコードデータです: ${e.toString()}'
+                    );
+                  }
+                }
+              }
+            },
+            child: const Text('確認'),
+          ),
+        ],
+      ),
+    );
   }
   
   @override
