@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/themes/app_colors.dart';
 import '../../../../data/repositories/group_repository.dart';
+import '../../../../data/repositories/auth_repository.dart';
 
 class CreateGroupScreen extends StatefulWidget {
   const CreateGroupScreen({Key? key}) : super(key: key);
@@ -16,17 +17,52 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _chipUnitController = TextEditingController(text: '1');
+  final _nicknameController = TextEditingController(); // ニックネーム入力用
   
   final _groupRepository = GroupRepository();
+  final _authRepository = AuthRepository();
   
   bool _isCreating = false;
   String? _errorMessage;
+  bool _isAnonymous = true;
+  
+  @override
+  void initState() {
+    super.initState();
+    _checkUserStatus();
+  }
+  
+  Future<void> _checkUserStatus() async {
+    try {
+      final isAnon = await _authRepository.isAnonymousUser();
+      if (mounted) {
+        setState(() {
+          _isAnonymous = isAnon;
+        });
+      }
+      
+      // 既存のニックネームを取得（匿名ユーザーでも）
+      final profile = await _authRepository.getUserProfile();
+      if (profile != null && mounted) {
+        // 「ゲストユーザー」という名前でない場合のみ設定
+        if (profile.displayName != 'ゲストユーザー') {
+          setState(() {
+            _nicknameController.text = profile.displayName;
+          });
+        }
+      }
+    } catch (e) {
+      // エラーが発生しても続行（デフォルトで匿名ユーザーとして扱う）
+      print('ユーザーステータス確認エラー: $e');
+    }
+  }
   
   @override
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
     _chipUnitController.dispose();
+    _nicknameController.dispose();
     super.dispose();
   }
   
@@ -41,6 +77,17 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
     });
     
     try {
+      // まず、ニックネームが設定されていれば更新
+      if (_isAnonymous && _nicknameController.text.trim().isNotEmpty) {
+        final user = _authRepository.currentUser;
+        if (user != null) {
+          await _authRepository.updateUserProfile(
+            userId: user.id,
+            displayName: _nicknameController.text.trim(),
+          );
+        }
+      }
+      
       final groupId = await _groupRepository.createGroup(
         name: _nameController.text.trim(),
         description: _descriptionController.text.trim(),
@@ -58,8 +105,8 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
       // グループ一覧画面に戻る
       context.pop();
       
-      // TODO: 作成したグループの詳細画面に遷移
-      // context.push('/groups/$groupId');
+      // 作成したグループの詳細画面に遷移
+      context.push('/groups/$groupId');
       
     } catch (e) {
       setState(() {
@@ -107,6 +154,53 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                       ),
                     ],
                   ),
+                ),
+              
+              // 匿名ユーザーの場合はニックネーム入力を表示
+              if (_isAnonymous)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.blue),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'ニックネームを設定すると、他のメンバーがあなたを識別しやすくなります。',
+                              style: TextStyle(color: Colors.blue),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextFormField(
+                      controller: _nicknameController,
+                      decoration: const InputDecoration(
+                        labelText: 'あなたのニックネーム',
+                        hintText: '例: たろう',
+                        border: OutlineInputBorder(),
+                      ),
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'ニックネームを入力してください';
+                        }
+                        if (value.length > 30) {
+                          return 'ニックネームは30文字以内で入力してください';
+                        }
+                        return null;
+                      },
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: 24),
+                  ],
                 ),
               
               // グループ名

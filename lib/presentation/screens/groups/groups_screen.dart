@@ -21,6 +21,7 @@ class _GroupsScreenState extends State<GroupsScreen> {
   List<GroupModel> _groups = [];
   String? _errorMessage;
   bool _isLoggedIn = false;
+  bool _isAnonymous = true;
   
   @override
   void initState() {
@@ -31,12 +32,17 @@ class _GroupsScreenState extends State<GroupsScreen> {
   
   Future<void> _checkLoginStatus() async {
     final user = Supabase.instance.client.auth.currentUser;
-    final authRepo = AuthRepository();
     bool isAnonymous = false;
     
     if (user != null) {
       try {
-        isAnonymous = await authRepo.isAnonymousUser();
+        isAnonymous = await _authRepository.isAnonymousUser();
+        
+        if (mounted) {
+          setState(() {
+            _isAnonymous = isAnonymous;
+          });
+        }
       } catch (e) {
         print('匿名ユーザーチェックエラー: $e');
         isAnonymous = true;
@@ -99,9 +105,11 @@ class _GroupsScreenState extends State<GroupsScreen> {
       // グループ一覧を再読み込み
       _loadGroups();
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('ログアウトに失敗しました: ${e.toString()}')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ログアウトに失敗しました: ${e.toString()}')),
+        );
+      }
     }
   }
   
@@ -347,60 +355,135 @@ class _GroupsScreenState extends State<GroupsScreen> {
   }
   
   void _showJoinGroupDialog() {
-    final TextEditingController controller = TextEditingController();
+    final _inviteCodeController = TextEditingController();
+    final _nicknameController = TextEditingController();
+    
+    // 既存のニックネームを取得
+    _authRepository.getUserProfile().then((profile) {
+      if (profile != null && _nicknameController.text.isEmpty && profile.displayName != 'ゲストユーザー') {
+        if (mounted) {
+          setState(() {
+            _nicknameController.text = profile.displayName;
+          });
+        }
+      }
+    });
+    
+    // スキャフォールドキーを保存（BuildContextを保持するため）
+    final scaffoldContext = ScaffoldMessenger.of(context);
     
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('グループに参加'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('招待コードを入力してください'),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                labelText: '招待コード',
-                hintText: '例: ABC123',
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: const Text('グループに参加'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_isAnonymous) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.info_outline, color: Colors.blue),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'グループに参加する前に、あなたのニックネームを入力してください。',
+                              style: TextStyle(color: Colors.blue),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextField(
+                      controller: _nicknameController,
+                      decoration: const InputDecoration(
+                        labelText: 'あなたのニックネーム',
+                        hintText: '例: たろう',
+                      ),
+                      textInputAction: TextInputAction.next,
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  const Text('招待コードを入力してください'),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _inviteCodeController,
+                    decoration: const InputDecoration(
+                      labelText: '招待コード',
+                      hintText: '例: ABC123',
+                    ),
+                    textCapitalization: TextCapitalization.characters,
+                  ),
+                ],
               ),
-              textCapitalization: TextCapitalization.characters,
             ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-            },
-            child: const Text('キャンセル'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final code = controller.text.trim().toUpperCase();
-              if (code.isEmpty) return;
-              
-              Navigator.pop(context);
-              
-              try {
-                await _groupRepository.joinGroupByInviteCode(code);
-                
-                if (!mounted) return;
-                
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('グループに参加しました！')),
-                );
-                
-                _loadGroups(); // グループ一覧を再読み込み
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('参加に失敗しました: ${e.toString()}')),
-                );
-              }
-            },
-            child: const Text('参加'),
-          ),
-        ],
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(dialogContext);
+                },
+                child: const Text('キャンセル'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  final code = _inviteCodeController.text.trim().toUpperCase();
+                  if (code.isEmpty) {
+                    return;
+                  }
+                  
+                  // 匿名ユーザーの場合はニックネームが必須
+                  if (_isAnonymous && _nicknameController.text.trim().isEmpty) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      const SnackBar(content: Text('ニックネームを入力してください')),
+                    );
+                    return;
+                  }
+                  
+                  Navigator.pop(dialogContext);
+                  
+                  try {
+                    // ニックネームが入力されていれば、プロフィールを更新
+                    if (_isAnonymous && _nicknameController.text.trim().isNotEmpty) {
+                      final user = _authRepository.currentUser;
+                      if (user != null) {
+                        await _authRepository.updateUserProfile(
+                          userId: user.id,
+                          displayName: _nicknameController.text.trim(),
+                        );
+                      }
+                    }
+                    
+                    // グループに参加
+                    await _groupRepository.joinGroupByInviteCode(code);
+                    
+                    // 成功メッセージを表示
+                    scaffoldContext.showSnackBar(
+                      const SnackBar(content: Text('グループに参加しました！')),
+                    );
+                    
+                    // グループ一覧を再読み込み
+                    _loadGroups();
+                  } catch (e) {
+                    scaffoldContext.showSnackBar(
+                      SnackBar(content: Text('参加に失敗しました: ${e.toString()}')),
+                    );
+                  }
+                },
+                child: const Text('参加'),
+              ),
+            ],
+          );
+        }
       ),
     );
   }
