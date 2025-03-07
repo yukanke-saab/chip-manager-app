@@ -341,10 +341,17 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
   // QRコードでスキャンしたメンバーの表示カード
   Widget _buildSelectedMemberCard() {
-    final selectedMember = _members.firstWhere(
-      (member) => member.userId == _selectedMemberId,
-      orElse: () => null,
-    );
+    // 型安全なメンバー検索 - firstWhereまたはnullを返す
+    dynamic findMember() {
+      for (var member in _members) {
+        if (member.userId == _selectedMemberId) {
+          return member;
+        }
+      }
+      return null;
+    }
+    
+    final selectedMember = findMember();
     
     if (selectedMember == null) {
       return const Card(
