@@ -52,12 +52,8 @@
 	<!-- Google AdMob設定 -->
 	<key>GADApplicationIdentifier</key>
 	<string>ca-app-pub-3940256099942544~1458002511</string>
-	<key>SKAdNetworkItems</key>
-	<array>
-		<dict>
-			<key>SKAdNetworkIdentifier</key>
-			<string>cstr6suwn9.skadnetwork</string>
-		</dict>
-	</array>
+	<!-- iOS 14以降のATT対応 -->
+	<key>NSUserTrackingUsageDescription</key>
+	<string>この許可を行うと、あなたに関連性の高い広告を表示できるようになります。</string>
 </dict>
 </plist>
