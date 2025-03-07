@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui' show PathFillType, PathOperation, TextDirection;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -20,159 +19,85 @@ class ScanQRScreen extends StatefulWidget {
   State<ScanQRScreen> createState() => _ScanQRScreenState();
 }
 
-class _ScanQRScreenState extends State<ScanQRScreen> with WidgetsBindingObserver {
-  MobileScannerController? _scannerController;
-  final _groupRepository = GroupRepository();
-  
-  bool _isScanning = true;
-  bool _torchEnabled = false;
+class _ScanQRScreenState extends State<ScanQRScreen> {
+  // スキャナーコントローラー
+  late MobileScannerController _controller;
+  // ローディング状態
   bool _isProcessing = false;
-  String? _errorMessage;
-  bool _isCameraPermissionGranted = false;
-  bool _isCameraInitialized = false;
-  
+  // フラッシュライト状態
+  bool _isTorchOn = false;
+  // 手動入力コントローラー
   final TextEditingController _manualCodeController = TextEditingController();
-  
+  // グループリポジトリ
+  final _groupRepository = GroupRepository();
+  // エラーメッセージ
+  String? _errorMessage;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    // iOS実機でのクラッシュを避けるためにややディレイを入れて初期化
-    Future.delayed(const Duration(milliseconds: 500), () {
-      _initializeScanner();
-    });
-  }
-  
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    // アプリのライフサイクルを適切に処理
-    if (state == AppLifecycleState.resumed) {
-      if (mounted) {
-        // 安全に初期化するためのディレイ
-        Future.delayed(const Duration(milliseconds: 500), () {
-          _initializeScanner();
-        });
-      }
-    } else if (state == AppLifecycleState.paused || 
-               state == AppLifecycleState.inactive) {
-      // カメラを停止
-      _scannerController?.stop();
-    } else if (state == AppLifecycleState.detached) {
-      // カメラを安全に停止して破棄
-      _disposeScanner();
-    }
-  }
-  
-  void _initializeScanner() {
-    // 既存のコントローラが存在する場合は先に破棄
-    _disposeScanner();
+    // カメラコントローラーを初期化
+    _controller = MobileScannerController(
+      detectionSpeed: DetectionSpeed.normal,
+      facing: CameraFacing.back,
+      torchEnabled: false,
+      formats: [BarcodeFormat.qrCode],
+      // 初期化エラーは後で処理
+    );
     
-    // スキャナーを安全に初期化
+    // カメラを起動
+    _startScanning();
+  }
+
+  void _startScanning() async {
     try {
-      _scannerController = MobileScannerController(
-        facing: CameraFacing.back,
-        torchEnabled: false,
-        // より激しくスキャンするように設定変更
-        detectionSpeed: DetectionSpeed.normal,
-        // フォーマットを明示的に指定し、QRコードを優先
-        formats: const [
-          BarcodeFormat.qrCode,
-        ],
-      );
-      
-      // 3.5.7ではonScannerStartedは存在しないため、別の方法でエラーをハンドリング
-      try {
-        _scannerController?.start();
-      } catch (e) {
-        if (mounted) {
-          setState(() {
-            _errorMessage = 'カメラの初期化に失敗しました: $e';
-            _isCameraPermissionGranted = false;
-            _isCameraInitialized = false;
-          });
-        }
-        print('カメラエラー: $e');
-      }
-      
-      if (mounted) {
-        setState(() {
-          _isCameraPermissionGranted = true;
-          _isCameraInitialized = true;
-          _isScanning = true;
-          _errorMessage = null;
-        });
-      }
+      setState(() {
+        _errorMessage = null;
+      });
+      await _controller.start();
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _errorMessage = 'カメラの初期化に失敗しました: $e';
-          _isCameraPermissionGranted = false;
-          _isCameraInitialized = false;
-        });
-      }
-      print('カメラ初期化エラー: $e');
+      setState(() {
+        _errorMessage = 'カメラの起動に失敗しました: $e';
+      });
+      print('カメラエラー: $e');
     }
   }
-  
-  // コントローラを安全に破棄するヘルパーメソッド
-  void _disposeScanner() {
-    try {
-      _scannerController?.stop();
-      _scannerController?.dispose();
-      _scannerController = null;
-    } catch (e) {
-      print('スキャナー破棄エラー: $e');
-    }
-  }
-  
+
   @override
   void dispose() {
-    // コントローラーを安全に破棄
-    WidgetsBinding.instance.removeObserver(this);
-    _disposeScanner();
+    _controller.dispose();
     _manualCodeController.dispose();
     super.dispose();
   }
-  
+
+  // QRコードが検出された時の処理
   void _onDetect(BarcodeCapture capture) async {
     // 既に処理中なら無視
-    if (!_isScanning || _isProcessing) {
-      return;
-    }
-    
-    print('バーコードが検出されました!');
-    
-    // QRコードの内容を取得
+    if (_isProcessing) return;
+
     final List<Barcode> barcodes = capture.barcodes;
     if (barcodes.isEmpty) return;
     
-    print('バーコード内容: ${barcodes.first.rawValue}');
+    print('QRコード検出: ${barcodes.first.rawValue}');
     
-    // SIGABRTを避けるために、まずスキャンを停止してからデータ処理
-    _scannerController?.stop();
-    
+    // 処理を開始
     setState(() {
       _isProcessing = true;
-      _isScanning = false;
     });
     
     try {
-      // QRコードの内容を取得
       final String qrData = barcodes.first.rawValue ?? '';
       if (qrData.isEmpty) {
-        throw Exception('QRコードの読み取りに失敗しました');
+        throw Exception('QRコードを読み取れませんでした');
       }
       
-      // QRコードのデータを解析
       await _processQRData(qrData);
     } catch (e) {
       print('QRコード処理エラー: $e');
-      // エラーメッセージを表示
       setState(() {
         _errorMessage = e.toString();
       });
       
-      // エラーダイアログを表示
       if (mounted) {
         _showErrorDialog();
       }
@@ -185,12 +110,12 @@ class _ScanQRScreenState extends State<ScanQRScreen> with WidgetsBindingObserver
     }
   }
   
+  // QRコードデータの処理
   Future<void> _processQRData(String qrData) async {
     try {
-      // JSONをデコード
       final Map<String, dynamic> data = jsonDecode(qrData);
       
-      // データの種類を確認
+      // データ検証
       final String type = data['type'] as String? ?? '';
       if (type != 'chip_transaction') {
         throw Exception('無効なQRコードです: 取引用QRコードではありません');
@@ -215,9 +140,8 @@ class _ScanQRScreenState extends State<ScanQRScreen> with WidgetsBindingObserver
         throw Exception('ユーザー情報が見つかりません');
       }
       
-      // スキャンが成功したら取引画面へ遷移
+      // 取引画面へ遷移
       if (mounted) {
-        // 取引画面へ遷移（ユーザーIDを引数として渡す）
         context.push('/groups/${widget.groupId}/transactions/add?memberId=$userId');
       }
     } catch (e) {
@@ -226,9 +150,8 @@ class _ScanQRScreenState extends State<ScanQRScreen> with WidgetsBindingObserver
     }
   }
   
+  // エラーダイアログの表示
   void _showErrorDialog() {
-    if (!mounted) return;
-    
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -238,23 +161,14 @@ class _ScanQRScreenState extends State<ScanQRScreen> with WidgetsBindingObserver
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
-              // スキャンを再開
-              if (_isCameraInitialized) {
-                _scannerController?.start();
-                setState(() {
-                  _isScanning = true;
-                  _errorMessage = null;
-                });
-              } else {
-                _initializeScanner();
-              }
+              _startScanning();
             },
             child: const Text('やり直す'),
           ),
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
-              Navigator.of(context).pop(); // スキャン画面を閉じる
+              Navigator.of(context).pop();
             },
             child: const Text('閉じる'),
           ),
@@ -263,7 +177,7 @@ class _ScanQRScreenState extends State<ScanQRScreen> with WidgetsBindingObserver
     );
   }
   
-  // 手動でQRコードを入力するダイアログを表示
+  // 手動入力ダイアログの表示
   void _showManualEntryDialog() {
     showDialog(
       context: context,
@@ -315,325 +229,226 @@ class _ScanQRScreenState extends State<ScanQRScreen> with WidgetsBindingObserver
       ),
     );
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('QRコードをスキャン'),
         actions: [
-          // 手動入力ボタン - 最初に配置してアクセシビリティを高める
           IconButton(
             icon: const Icon(Icons.keyboard),
             onPressed: _showManualEntryDialog,
             tooltip: '手動入力',
           ),
-          // カメラ関連のアクション
-          if (_isCameraPermissionGranted && _isCameraInitialized)
-            IconButton(
-              icon: Icon(
-                _torchEnabled ? Icons.flash_on : Icons.flash_off,
-              ),
-              onPressed: () async {
-                try {
-                  await _scannerController?.toggleTorch();
-                  setState(() {
-                    _torchEnabled = !_torchEnabled;
-                  });
-                } catch (e) {
-                  print('ライト切替エラー: $e');
-                }
-              },
-            ),
-          if (_isCameraPermissionGranted && _isCameraInitialized)
-            IconButton(
-              icon: Icon(
-                Platform.isIOS 
-                    ? Icons.flip_camera_ios 
-                    : Icons.flip_camera_android,
-              ),
-              onPressed: () {
-                try {
-                  _scannerController?.switchCamera();
-                } catch (e) {
-                  print('カメラ切替エラー: $e');
-                }
-              },
-            ),
+          IconButton(
+            icon: Icon(_isTorchOn ? Icons.flash_on : Icons.flash_off),
+            onPressed: () {
+              _controller.toggleTorch();
+              setState(() {
+                _isTorchOn = !_isTorchOn;
+              });
+            },
+          ),
+          IconButton(
+            icon: Icon(Platform.isIOS ? Icons.flip_camera_ios : Icons.flip_camera_android),
+            onPressed: () => _controller.switchCamera(),
+          ),
         ],
       ),
-      body: _buildBody(),
-    );
-  }
-  
-  Widget _buildBody() {
-    // カメラ使用不可の場合 - 手動入力モードを強調表示
-    if (!_isCameraPermissionGranted || !_isCameraInitialized || _errorMessage != null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.error_outline,
-              size: 48.0,
-              color: Colors.red,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'カメラにアクセスできません',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Text(
-                _errorMessage ?? 'カメラへのアクセス権限がないか、デバイスのカメラを利用できません。\nQRコードを手動入力して続行できます。',
-                textAlign: TextAlign.center,
-              ),
-            ),
-            const SizedBox(height: 24),
-            // 手動入力ボタンを強調表示
-            ElevatedButton.icon(
-              onPressed: _showManualEntryDialog,
-              icon: const Icon(Icons.keyboard),
-              label: const Text('QRコードを手動入力'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              ),
-            ),
-            const SizedBox(height: 16),
-            // カメラを再試行するボタン
-            OutlinedButton.icon(
-              onPressed: _initializeScanner,
-              icon: const Icon(Icons.refresh),
-              label: const Text('カメラを再試行'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Column(
-      children: [
-        Expanded(
-          flex: 5,
-          child: Stack(
-            children: [
-              // スキャナービュー
-              _scannerController != null ? MobileScanner(
-                controller: _scannerController!,
-                onDetect: _onDetect,
-                // スキャンウィンドウを少し大きくする
-                scanWindow: Rect.fromCenter(
-                  center: Offset(
-                    MediaQuery.of(context).size.width / 2,
-                    MediaQuery.of(context).size.height / 2,
-                  ),
-                  width: 300,  // 幅を広げる
-                  height: 300, // 高さを広げる
-                ),
-                errorBuilder: (context, error, child) {
-                  print('カメラエラー発生: $error');
-                  return Center(
-                    child: Text('カメラエラー: ${error.toString()}'),
-                  );
-                },
-              ) : const Center(
-                child: Text('カメラを初期化中...'),
-              ),
-              
-              // スキャン領域のオーバーレイ
-              Container(
-                decoration: ShapeDecoration(
-                  shape: QrScannerOverlayShape(
-                    borderColor: AppColors.primary,
-                    borderRadius: 10,
-                    borderLength: 30,
-                    borderWidth: 10,
-                    cutOutSize: 250,
-                  ),
-                ),
-              ),
-              
-              // 処理中のインジケーター
-              if (_isProcessing)
-                Container(
-                  color: Colors.black.withOpacity(0.5),
-                  child: const Center(
-                    child: CircularProgressIndicator(),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        
-        // 説明テキスト
-        Expanded(
-          flex: 2,
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+      body: Column(
+        children: [
+          Expanded(
+            flex: 5,
+            child: Stack(
               children: [
-                const Text(
-                  'メンバーのQRコードをスキャンしてください',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center,
+                // スキャナービュー
+                MobileScanner(
+                  controller: _controller,
+                  onDetect: _onDetect,
+                  errorBuilder: (context, error, child) {
+                    print('スキャナーエラー: $error');
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.error, color: Colors.red, size: 48),
+                          const SizedBox(height: 12),
+                          Text('カメラエラー: ${error.toString()}'),
+                          const SizedBox(height: 16),
+                          ElevatedButton(
+                            onPressed: _startScanning,
+                            child: const Text('カメラを再試行'),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
-                const SizedBox(height: 16),
-                const Text(
-                  'カメラをQRコードに向けると自動的に読み取ります。\n'
-                  '読み取り後、チップの加減算画面に進みます。',
-                  textAlign: TextAlign.center,
+                
+                // スキャン枠オーバーレイ
+                Center(
+                  child: Container(
+                    width: 250,
+                    height: 250,
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: AppColors.primary,
+                        width: 3.0,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                 ),
-                const SizedBox(height: 16),
-                OutlinedButton.icon(
-                  onPressed: _showManualEntryDialog,
-                  icon: const Icon(Icons.keyboard),
-                  label: const Text('QRコードを手動入力'),
+                
+                // スキャンガイド (角のマーク)
+                Center(
+                  child: SizedBox(
+                    width: 250,
+                    height: 250,
+                    child: CustomPaint(
+                      painter: CornersPainter(color: AppColors.primary),
+                    ),
+                  ),
                 ),
+                
+                // 処理中インジケーター
+                if (_isProcessing)
+                  Container(
+                    color: Colors.black54,
+                    child: const Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  ),
+                
+                // エラー表示
+                if (_errorMessage != null)
+                  Container(
+                    color: Colors.black54,
+                    padding: const EdgeInsets.all(16),
+                    child: Center(
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.error_outline, color: Colors.red, size: 48),
+                              const SizedBox(height: 16),
+                              Text(
+                                _errorMessage!,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 16),
+                              ElevatedButton(
+                                onPressed: _startScanning,
+                                child: const Text('再試行'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
-        ),
-      ],
+          
+          // 説明テキスト
+          Expanded(
+            flex: 2,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    'メンバーのQRコードをスキャンしてください',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'カメラをQRコードに向けると自動的に読み取ります。\n'
+                    '読み取り後、チップの加減算画面に進みます。',
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: _showManualEntryDialog,
+                    icon: const Icon(Icons.keyboard),
+                    label: const Text('QRコードを手動入力'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-// スキャン領域のオーバーレイを定義するクラス
-class QrScannerOverlayShape extends ShapeBorder {
-  final Color borderColor;
-  final double borderWidth;
-  final Color overlayColor;
-  final double borderRadius;
-  final double borderLength;
-  final double cutOutSize;
+// コーナーマーカーペインター (スキャン枠の四隅を描画)
+class CornersPainter extends CustomPainter {
+  final Color color;
+  final double length;
+  final double thickness;
 
-  const QrScannerOverlayShape({
-    this.borderColor = Colors.red,
-    this.borderWidth = 3.0,
-    this.overlayColor = const Color(0x88000000),
-    this.borderRadius = 10.0,
-    this.borderLength = 30.0,
-    this.cutOutSize = 250.0,
+  CornersPainter({
+    required this.color,
+    this.length = 24,
+    this.thickness = 4,
   });
 
   @override
-  EdgeInsetsGeometry get dimensions => EdgeInsets.zero;
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = thickness
+      ..strokeCap = StrokeCap.square;
 
-  @override
-  Path getInnerPath(Rect rect, {TextDirection? textDirection}) {
-    return Path()
-      ..fillType = PathFillType.evenOdd
-      ..addRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: rect.center,
-            width: cutOutSize,
-            height: cutOutSize,
-          ),
-          Radius.circular(borderRadius),
-        ),
-      );
-  }
+    const radius = 0.0;
 
-  @override
-  Path getOuterPath(Rect rect, {TextDirection? textDirection}) {
-    return Path()
-      ..fillType = PathFillType.evenOdd
-      ..addRect(rect)
-      ..addRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromCenter(
-            center: rect.center,
-            width: cutOutSize,
-            height: cutOutSize,
-          ),
-          Radius.circular(borderRadius),
-        ),
-      );
-  }
-
-  @override
-  void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {
-    final Paint paint = Paint()
-      ..color = overlayColor
-      ..style = PaintingStyle.fill;
-
-    final cutOutRect = Rect.fromCenter(
-      center: rect.center,
-      width: cutOutSize,
-      height: cutOutSize,
-    );
-
+    // 左上
     canvas.drawPath(
-      Path.combine(
-        PathOperation.difference,
-        Path()..addRect(rect),
-        Path()
-          ..addRRect(
-            RRect.fromRectAndRadius(
-              cutOutRect,
-              Radius.circular(borderRadius),
-            ),
-          ),
-      ),
+      Path()
+        ..moveTo(0, length)
+        ..lineTo(0, radius)
+        ..lineTo(length, 0),
       paint,
     );
 
-    // Draw border
-    final borderPaint = Paint()
-      ..color = borderColor
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = borderWidth;
-
-    // Top left corner
+    // 右上
     canvas.drawPath(
       Path()
-        ..moveTo(cutOutRect.left, cutOutRect.top + borderLength)
-        ..lineTo(cutOutRect.left, cutOutRect.top)
-        ..lineTo(cutOutRect.left + borderLength, cutOutRect.top),
-      borderPaint,
+        ..moveTo(size.width - length, 0)
+        ..lineTo(size.width - radius, 0)
+        ..lineTo(size.width, length),
+      paint,
     );
 
-    // Top right corner
+    // 右下
     canvas.drawPath(
       Path()
-        ..moveTo(cutOutRect.right - borderLength, cutOutRect.top)
-        ..lineTo(cutOutRect.right, cutOutRect.top)
-        ..lineTo(cutOutRect.right, cutOutRect.top + borderLength),
-      borderPaint,
+        ..moveTo(size.width, size.height - length)
+        ..lineTo(size.width, size.height - radius)
+        ..lineTo(size.width - length, size.height),
+      paint,
     );
 
-    // Bottom right corner
+    // 左下
     canvas.drawPath(
       Path()
-        ..moveTo(cutOutRect.right, cutOutRect.bottom - borderLength)
-        ..lineTo(cutOutRect.right, cutOutRect.bottom)
-        ..lineTo(cutOutRect.right - borderLength, cutOutRect.bottom),
-      borderPaint,
-    );
-
-    // Bottom left corner
-    canvas.drawPath(
-      Path()
-        ..moveTo(cutOutRect.left + borderLength, cutOutRect.bottom)
-        ..lineTo(cutOutRect.left, cutOutRect.bottom)
-        ..lineTo(cutOutRect.left, cutOutRect.bottom - borderLength),
-      borderPaint,
+        ..moveTo(length, size.height)
+        ..lineTo(radius, size.height)
+        ..lineTo(0, size.height - length),
+      paint,
     );
   }
 
   @override
-  ShapeBorder scale(double t) {
-    return QrScannerOverlayShape(
-      borderColor: borderColor,
-      borderWidth: borderWidth * t,
-      overlayColor: overlayColor,
-      borderRadius: borderRadius * t,
-      borderLength: borderLength * t,
-      cutOutSize: cutOutSize * t,
-    );
-  }
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
