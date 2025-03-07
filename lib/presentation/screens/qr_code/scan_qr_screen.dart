@@ -1,13 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show PathFillType, PathOperation, TextDirection;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
-import 'package:intl/intl.dart';
 import '../../../core/themes/app_colors.dart';
 import '../../../data/repositories/group_repository.dart';
 import '../../../core/utils/ui_utils/snackbar_utils.dart';
-import '../../../data/models/group_member_model.dart';
 
 class ScanQRScreen extends StatefulWidget {
   final String groupId;
@@ -433,8 +432,6 @@ class _ScanQRScreenState extends State<ScanQRScreen> with WidgetsBindingObserver
                   width: 300,  // 幅を広げる
                   height: 300, // 高さを広げる
                 ),
-                // カメラが見えるように透過度を調整
-                overlayBuilder: (p0, p1) => Container(),
                 errorBuilder: (context, error, child) {
                   print('カメラエラー発生: $error');
                   return Center(
