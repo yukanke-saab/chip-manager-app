@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/services.dart';
@@ -31,11 +32,16 @@ void main() async {
     anonKey: AppConstants.supabaseAnonKey,
   );
   
-  // AdMobの初期化
-  await MobileAds.instance.initialize();
-  
-  // 広告サービスの初期化、事前ロード
-  await AdService().initialize();
+  // AdMobの初期化 - モバイルプラットフォームのみ
+  if (Platform.isAndroid || Platform.isIOS) {
+    try {
+      await MobileAds.instance.initialize();
+      await AdService().initialize();
+    } catch (e) {
+      print('広告初期化エラー: $e');
+      // 広告初期化の失敗はアプリの起動を妨げないようにする
+    }
+  }
   
   runApp(const MyApp());
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'dart:io' show Platform;
 import '../../../core/themes/app_colors.dart';
 import '../../../core/utils/ui_utils/ad_dialog_utils.dart';
 import '../../../data/models/group_model.dart';
@@ -43,8 +44,15 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     _loadGroupData();
     
     // 広告サービスを初期化、事前ロードを開始
-    AdService().initialize();
-    AdService().preloadRewardedAd();
+    // サポートされているプラットフォームのみで実行
+    if (Platform.isAndroid || Platform.isIOS) {
+      try {
+        AdService().initialize();
+        AdService().preloadRewardedAd();
+      } catch (e) {
+        print('広告初期化エラー: $e');
+      }
+    }
   }
 
   @override

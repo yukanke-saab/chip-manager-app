@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import '../../../services/ad_service.dart';
 
@@ -8,11 +9,26 @@ class AdDialogUtils {
   
   /// チップ取引後の広告表示ダイアログ
   static Future<bool> showTransactionAdDialog(BuildContext context) async {
+    // サポートされていないプラットフォームではスキップ
+    if (!(Platform.isAndroid || Platform.isIOS)) {
+      return false;
+    }
+    
     // 広告サービスのインスタンスを取得
     final adService = AdService();
     
+    // サポート確認
+    if (!adService.isSupported) {
+      return false;
+    }
+    
     // 広告を事前にロード
-    await adService.preloadRewardedAd();
+    try {
+      await adService.preloadRewardedAd();
+    } catch (e) {
+      print('広告ロードエラー: $e');
+      return false;
+    }
     
     // 広告表示の結果を格納する変数
     bool adWasShown = false;
