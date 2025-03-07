@@ -73,18 +73,21 @@ class _ScanQRScreenState extends State<ScanQRScreen> with WidgetsBindingObserver
         torchEnabled: false,
         // 処理速度を下げることでクラッシュを減らす試み
         detectionSpeed: DetectionSpeed.noDuplicates,
-        // エラーハンドリングを追加
-        onFailure: (error) {
+      );
+      
+      // エラーハンドリングを別途設定
+      _scannerController?.onScannerStarted = (startResult) {
+        if (startResult.hasError) {
           if (mounted) {
             setState(() {
-              _errorMessage = 'カメラの初期化に失敗しました: $error';
+              _errorMessage = 'カメラの初期化に失敗しました: ${startResult.errorMessage}';
               _isCameraPermissionGranted = false;
               _isCameraInitialized = false;
             });
           }
-          print('カメラエラー: $error');
-        },
-      );
+          print('カメラエラー: ${startResult.errorMessage}');
+        }
+      };
       
       if (mounted) {
         setState(() {
@@ -407,6 +410,19 @@ class _ScanQRScreenState extends State<ScanQRScreen> with WidgetsBindingObserver
               _scannerController != null ? MobileScanner(
                 controller: _scannerController!,
                 onDetect: _onDetect,
+                scanWindow: Rect.fromCenter(
+                  center: Offset(
+                    MediaQuery.of(context).size.width / 2,
+                    MediaQuery.of(context).size.height / 2,
+                  ),
+                  width: 250,
+                  height: 250,
+                ),
+                errorBuilder: (context, error, child) {
+                  return Center(
+                    child: Text('カメラエラー: ${error.toString()}'),
+                  );
+                },
               ) : const Center(
                 child: Text('カメラを初期化中...'),
               ),
