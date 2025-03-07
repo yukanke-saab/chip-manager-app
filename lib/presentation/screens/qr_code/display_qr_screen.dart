@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../../core/themes/app_colors.dart';
 import '../../../data/models/group_model.dart';
 import '../../../data/repositories/group_repository.dart';
 import '../../../data/repositories/auth_repository.dart';
+import '../../../core/utils/ui_utils/snackbar_utils.dart';
 
 class DisplayQRScreen extends StatefulWidget {
   final String groupId;
@@ -121,6 +123,14 @@ class _DisplayQRScreenState extends State<DisplayQRScreen> {
     });
   }
   
+  // QRコードデータをクリップボードにコピー
+  void _copyQRDataToClipboard() {
+    if (_qrData != null) {
+      Clipboard.setData(ClipboardData(text: _qrData!));
+      SnackbarUtils.showSuccessSnackBar(context, 'QRコードデータをコピーしました');
+    }
+  }
+  
   // 残り時間を分:秒形式で表示
   String _formatTimeRemaining() {
     final minutes = (_timeRemaining / 60).floor();
@@ -133,6 +143,15 @@ class _DisplayQRScreenState extends State<DisplayQRScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('チップ取引用QRコード'),
+        actions: [
+          // クリップボードにコピーボタン
+          if (!_isLoading && _qrData != null)
+            IconButton(
+              icon: const Icon(Icons.copy),
+              onPressed: _copyQRDataToClipboard,
+              tooltip: 'データをコピー',
+            ),
+        ],
       ),
       body: _buildBody(),
     );
@@ -161,7 +180,13 @@ class _DisplayQRScreenState extends State<DisplayQRScreen> {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 8),
-            Text(_errorMessage!),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+              ),
+            ),
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _loadGroupAndGenerateQR,
@@ -208,12 +233,18 @@ class _DisplayQRScreenState extends State<DisplayQRScreen> {
             ),
             child: Column(
               children: [
-                QrImageView(
-                  data: _qrData!,
-                  version: QrVersions.auto,
-                  size: 250,
-                  backgroundColor: Colors.white,
-                  errorCorrectionLevel: QrErrorCorrectLevel.H,
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: QrImageView(
+                    data: _qrData!,
+                    version: QrVersions.auto,
+                    size: 250,
+                    backgroundColor: Colors.white,
+                    errorCorrectionLevel: QrErrorCorrectLevel.H,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 
@@ -275,6 +306,18 @@ class _DisplayQRScreenState extends State<DisplayQRScreen> {
             icon: const Icon(Icons.refresh),
             label: const Text('QRコードを再生成'),
             style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+          ),
+          
+          const SizedBox(height: 16),
+          
+          // 手動でQRデータをコピーするボタン（バックアップオプション）
+          OutlinedButton.icon(
+            onPressed: _copyQRDataToClipboard,
+            icon: const Icon(Icons.copy),
+            label: const Text('QRデータをコピー'),
+            style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
           ),
